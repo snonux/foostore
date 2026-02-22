@@ -1,6 +1,6 @@
-# geheim.rb
+# foostore
 
-This is an humble Ruby script for text and binary document encryption. It uses `AES-256-CBC` by default and the initialization vector is generated from an user input PIN.
+This is an humble Go tool for text and binary document encryption. It uses `AES-256-CBC` by default and the initialization vector is generated from an user input PIN.
 
 This is for my own use. So the documentation here may be lacking. But feel free to try out yourself or ask!
 
@@ -12,7 +12,7 @@ This is for my own use. So the documentation here may be lacking. But feel free 
 * All file names are encrypted as well and kept in encrypted indices in the same Git repository.
 * The indices are searchable through `fzf`, the fuzzy finder.
 * The Git repository can be synchronized with N remote Git repositories (e.g. to two separate VMs for geo-redundancy).
-* Text entries are edited using NeoVim (with file caching and swapping etc. disabled).
+* Text entries are edited using Helix  (or any other `$EDITOR`)
 * Clipboard support for MacOS and GNOME (Linux).
 * Interactive `geheim` shell support.
 * Can import and export documuments in batches.
