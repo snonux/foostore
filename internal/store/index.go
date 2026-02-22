@@ -95,9 +95,19 @@ func (idx *Index) String() string {
 }
 
 // CommitIndex encrypts the Description and writes it to IndexPath, then stages
-// the file with git. The force parameter is passed through to the underlying
-// write helper (unused here since index files always need to be written).
+// the file with git. When force is false and IndexPath already exists the write
+// is silently skipped, matching the Ruby CommitFile#commit_content behaviour and
+// keeping the .index in sync with a skipped .data Commit.
 func (idx *Index) CommitIndex(ctx context.Context, c *crypto.Cipher, g *git.Git, force bool) error {
+	if !force {
+		if _, err := os.Stat(idx.IndexPath); err == nil {
+			// File already exists; skip without error to keep the index/data pair consistent
+			// when Data.Commit also skipped (force=false with an existing file).
+			fmt.Printf("Warning: %s already exists, skipping (use force to overwrite)\n", idx.IndexPath)
+			return nil
+		}
+	}
+
 	ciphertext, err := c.Encrypt([]byte(idx.Description))
 	if err != nil {
 		return fmt.Errorf("encrypting index %q: %w", idx.IndexPath, err)

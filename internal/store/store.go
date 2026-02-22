@@ -89,7 +89,16 @@ func (s *Store) WalkIndexes(ctx context.Context, searchTerm string, fn func(*Ind
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".index") {
+		// Skip the .git directory entirely — the data directory is a git repo
+		// but no secrets live inside .git, so descending into it is wasteful
+		// and may surface spurious errors if any path happens to end in ".index".
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".index") {
 			return nil
 		}
 		return s.processIndexFile(ctx, path, searchTerm, regex, fn)
@@ -241,7 +250,8 @@ func runFzf(ctx context.Context, entries []string) (string, error) {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		// fzf exits 130 when the user presses Escape — treat as no selection.
+		// Any non-zero exit from fzf (e.g., 130 for Escape, 1 for no match)
+		// is treated as no selection — the caller receives ("", nil).
 		return "", nil
 	}
 
@@ -297,6 +307,10 @@ func (s *Store) Import(ctx context.Context, srcPath, destPath string, force bool
 
 // ImportRecursive walks directory and imports every regular file under destDir.
 // The description for each file is its path relative to the source directory.
+// Note: the Ruby import_recursive flattens subdirectories to basename in the
+// hash/storage path while preserving the full relative path only in the
+// description. Go preserves the full subpath in both description and hash path.
+// The compatibility verification task (355) will surface any impact on live data.
 func (s *Store) ImportRecursive(ctx context.Context, directory, destDir string) error {
 	return filepath.WalkDir(directory, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -316,7 +330,8 @@ func (s *Store) ImportRecursive(ctx context.Context, directory, destDir string) 
 
 // Remove finds all indexes matching searchTerm, prints each one, and prompts
 // the user interactively before deleting the index+data pair. Mirrors Ruby's rm.
-func (s *Store) Remove(ctx context.Context, searchTerm string) error {
+// Pass os.Stdin as the reader for interactive use; a strings.Reader in tests.
+func (s *Store) Remove(ctx context.Context, searchTerm string, input io.Reader) error {
 	var indexes IndexSlice
 	if err := s.WalkIndexes(ctx, searchTerm, func(idx *Index) error {
 		indexes = append(indexes, idx)
@@ -327,7 +342,7 @@ func (s *Store) Remove(ctx context.Context, searchTerm string) error {
 
 	sort.Sort(indexes)
 
-	scanner := bufio.NewScanner(os.Stdin)
+	scanner := bufio.NewScanner(input)
 	for _, idx := range indexes {
 		if err := s.confirmAndRemove(ctx, idx, scanner); err != nil {
 			return err
@@ -366,22 +381,27 @@ func (s *Store) confirmAndRemove(ctx context.Context, idx *Index, scanner *bufio
 
 // ShredAllExported removes (shreds) every regular file in cfg.ExportDir.
 // Uses GNU shred when available; falls back to "rm -Pfv" otherwise.
+// Mirrors Ruby's shred_all_exported: iterates all files and returns the last
+// non-nil error so that as many files as possible are shredded even on failure.
 func (s *Store) ShredAllExported(ctx context.Context) error {
 	entries, err := filepath.Glob(filepath.Join(s.cfg.ExportDir, "*"))
 	if err != nil {
 		return fmt.Errorf("listing export dir: %w", err)
 	}
 
+	var lastErr error
 	for _, entry := range entries {
 		info, err := os.Stat(entry)
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
 		if err := shredFile(ctx, entry); err != nil {
-			return err
+			// Record the error but keep shredding — security demands best-effort
+			// destruction of all exported secrets even if one fails.
+			lastErr = err
 		}
 	}
-	return nil
+	return lastErr
 }
 
 // shredFile destroys a single file using shred(1) if available, or rm -Pfv.
@@ -404,8 +424,8 @@ func shredFile(ctx context.Context, filePath string) error {
 func (s *Store) buildPair(description, hash string) (*Index, *Data) {
 	indexPath := filepath.Join(s.cfg.DataDir, hash+".index")
 	dataPath := filepath.Join(s.cfg.DataDir, hash+".data")
-	hashBase := filepath.Base(hash + ".index")
-	hashBase = strings.TrimSuffix(hashBase, ".index")
+	// filepath.Base of the hash gives the final path component (the filename stem).
+	hashBase := filepath.Base(hash)
 
 	idx := &Index{
 		Description: description,

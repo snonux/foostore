@@ -72,8 +72,10 @@ func TestDataString(t *testing.T) {
 
 // --- TestDataCommitAndLoad ---------------------------------------------------
 
-// TestDataCommitAndLoad writes a Data to disk via Commit (force=true), then
-// reads it back with loadData and verifies the round-trip.
+// TestDataCommitAndLoad encrypts content directly and reads it back via
+// loadData, verifying the full encrypt/decrypt round-trip.
+// (Commit is tested in the integration tests that wire up a real git repo;
+// here we test the encrypt+write+decrypt path without git scaffolding.)
 func TestDataCommitAndLoad(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCipher(t)
@@ -82,13 +84,6 @@ func TestDataCommitAndLoad(t *testing.T) {
 	dataPath := filepath.Join(dir, "test.data")
 	wantContent := "my secret data\nwith newlines\n"
 
-	d := &Data{
-		Content:  []byte(wantContent),
-		DataPath: dataPath,
-	}
-
-	// Use a nil git — Commit with git.Add will fail, so we test Commit in two stages:
-	// encrypt+write only. We manually write the file to sidestep git in unit tests.
 	ciphertext, err := c.Encrypt([]byte(wantContent))
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
@@ -104,7 +99,6 @@ func TestDataCommitAndLoad(t *testing.T) {
 	if string(loaded.Content) != wantContent {
 		t.Errorf("loadData content = %q; want %q", loaded.Content, wantContent)
 	}
-	_ = d // d was constructed for documentation only; loadData is what we test here.
 }
 
 // --- TestDataExport ----------------------------------------------------------
@@ -151,6 +145,61 @@ func TestDataExportCreatesSubdir(t *testing.T) {
 	fullPath := filepath.Join(exportDir, deepPath)
 	if _, err := os.Stat(fullPath); err != nil {
 		t.Errorf("exported file not found at %q: %v", fullPath, err)
+	}
+}
+
+// --- TestLoadDataMissingFile -------------------------------------------------
+
+// TestLoadDataMissingFile verifies that loadData returns an error when the data
+// file does not exist on disk.
+func TestLoadDataMissingFile(t *testing.T) {
+	ctx := context.Background()
+	c := newTestCipher(t)
+
+	_, err := loadData(ctx, "/nonexistent/path/to.data", c)
+	if err == nil {
+		t.Error("loadData with missing file: expected error, got nil")
+	}
+}
+
+// --- TestLoadDataCorrupted ---------------------------------------------------
+
+// TestLoadDataCorrupted verifies that loadData returns an error when the file
+// contains data that cannot be decrypted (not valid ciphertext).
+func TestLoadDataCorrupted(t *testing.T) {
+	ctx := context.Background()
+	c := newTestCipher(t)
+
+	dir := t.TempDir()
+	badPath := filepath.Join(dir, "bad.data")
+	// Write garbage that is not valid AES-CBC ciphertext.
+	if err := os.WriteFile(badPath, []byte("not valid ciphertext"), 0o600); err != nil {
+		t.Fatalf("writing bad file: %v", err)
+	}
+
+	_, err := loadData(ctx, badPath, c)
+	if err == nil {
+		t.Error("loadData with corrupted file: expected error, got nil")
+	}
+}
+
+// --- TestDataExportUnwritable ------------------------------------------------
+
+// TestDataExportUnwritable verifies that Export returns an error when the
+// destination directory cannot be created (non-writable parent).
+func TestDataExportUnwritable(t *testing.T) {
+	// Skip when running as root since root can write anywhere.
+	if os.Getuid() == 0 {
+		t.Skip("running as root; permission check not applicable")
+	}
+
+	ctx := context.Background()
+	d := &Data{Content: []byte("test")}
+
+	// /nonexistent is a path whose parent "/" is read-only for non-root users.
+	err := d.Export(ctx, "/nonexistent/dir", "file.txt")
+	if err == nil {
+		t.Error("Export to unwritable dir: expected error, got nil")
 	}
 }
 
