@@ -745,3 +745,180 @@ func TestCommitIndexSkipsExisting(t *testing.T) {
 		t.Errorf("index file was overwritten: got %q; want %q", got, sentinel)
 	}
 }
+
+// --- TestSearchActionPathExport ----------------------------------------------
+
+// TestSearchActionPathExport verifies that ActionPathExport preserves the full
+// description path (not just the basename) when writing to the export dir.
+func TestSearchActionPathExport(t *testing.T) {
+	ctx, store, cfg, _, _ := testSetup(t)
+	initGitRepo(t, cfg.DataDir)
+
+	wantContent := "path export content\n"
+	if err := store.Add(ctx, "docs/subdir/report.txt", wantContent); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	results, err := store.Search(ctx, "report.txt", ActionPathExport, nil)
+	if err != nil {
+		t.Fatalf("Search ActionPathExport: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result; got %d", len(results))
+	}
+
+	// ActionPathExport uses the full description as the export path.
+	exportedPath := filepath.Join(cfg.ExportDir, "docs/subdir/report.txt")
+	got, err := os.ReadFile(exportedPath)
+	if err != nil {
+		t.Fatalf("reading exported file at full path: %v", err)
+	}
+	if string(got) != wantContent {
+		t.Errorf("exported content = %q; want %q", got, wantContent)
+	}
+}
+
+// --- TestSearchActionWithCallback --------------------------------------------
+
+// TestSearchActionWithCallback verifies that Search passes the correct Index and
+// Data to the actionFn for actions that delegate to the caller (ActionPaste etc.).
+func TestSearchActionWithCallback(t *testing.T) {
+	ctx, store, cfg, _, _ := testSetup(t)
+	initGitRepo(t, cfg.DataDir)
+
+	wantContent := "callback content\n"
+	if err := store.Add(ctx, "cb/entry.txt", wantContent); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	var gotDesc string
+	var gotContent string
+	actionFn := func(_ context.Context, idx *Index, d *Data) error {
+		gotDesc = idx.Description
+		gotContent = string(d.Content)
+		return nil
+	}
+
+	// ActionPaste falls through to the default/actionFn branch of applyAction.
+	results, err := store.Search(ctx, "cb/entry.txt", ActionPaste, actionFn)
+	if err != nil {
+		t.Fatalf("Search with callback: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result; got %d", len(results))
+	}
+	if gotDesc != "cb/entry.txt" {
+		t.Errorf("callback got description %q; want %q", gotDesc, "cb/entry.txt")
+	}
+	if gotContent != wantContent {
+		t.Errorf("callback got content %q; want %q", gotContent, wantContent)
+	}
+}
+
+// --- TestSearchActionNilCallback ---------------------------------------------
+
+// TestSearchActionNilCallback confirms that passing a nil actionFn for a
+// callback-delegated action (ActionPaste) is handled gracefully without panic.
+func TestSearchActionNilCallback(t *testing.T) {
+	ctx, store, cfg, _, _ := testSetup(t)
+	initGitRepo(t, cfg.DataDir)
+
+	if err := store.Add(ctx, "nil/cb.txt", "data"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// nil actionFn: applyAction must return nil without calling anything.
+	_, err := store.Search(ctx, "nil/cb.txt", ActionPaste, nil)
+	if err != nil {
+		t.Fatalf("Search with nil callback: %v", err)
+	}
+}
+
+// --- TestFzfEmpty ------------------------------------------------------------
+
+// TestFzfEmpty calls Fzf on an empty store and confirms it returns ("", nil)
+// without attempting to launch fzf.
+func TestFzfEmpty(t *testing.T) {
+	ctx, store, _, _, _ := testSetup(t)
+	// No entries added — Fzf must return immediately.
+	result, err := store.Fzf(ctx)
+	if err != nil {
+		t.Fatalf("Fzf on empty store: %v", err)
+	}
+	if result != "" {
+		t.Errorf("Fzf on empty store = %q; want empty string", result)
+	}
+}
+
+// --- TestRemoveInteractiveInvalidThenDecline ---------------------------------
+
+// TestRemoveInteractiveInvalidThenDecline exercises the retry loop in
+// confirmAndRemove: an unrecognised answer causes a re-prompt; "n" then exits.
+func TestRemoveInteractiveInvalidThenDecline(t *testing.T) {
+	ctx, store, cfg, _, g := testSetup(t)
+	initGitRepo(t, cfg.DataDir)
+
+	if err := store.Add(ctx, "retry/entry", "data"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := g.Commit(ctx); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	// "maybe\n" is not "y" or "n" → retry; "n\n" then declines.
+	input := strings.NewReader("maybe\nn\n")
+	if err := store.Remove(ctx, "retry/entry", input); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	// Entry must still be present because deletion was declined.
+	count := 0
+	if err := store.WalkIndexes(ctx, "", func(*Index) error { count++; return nil }); err != nil {
+		t.Fatalf("WalkIndexes: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 entry after decline; got %d", count)
+	}
+}
+
+// --- TestImportForceOverwrite ------------------------------------------------
+
+// TestImportForceOverwrite confirms that force=true overwrites an existing entry
+// while force=false (the default) skips it silently.
+func TestImportForceOverwrite(t *testing.T) {
+	ctx, store, cfg, c, _ := testSetup(t)
+	initGitRepo(t, cfg.DataDir)
+
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, "f.txt")
+	if err := os.WriteFile(src, []byte("original\n"), 0o600); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
+
+	// First import.
+	if err := store.Import(ctx, src, "force/f.txt", false); err != nil {
+		t.Fatalf("first Import: %v", err)
+	}
+
+	// Overwrite source with new content.
+	if err := os.WriteFile(src, []byte("updated\n"), 0o600); err != nil {
+		t.Fatalf("write updated src: %v", err)
+	}
+
+	// Second import with force=true must overwrite.
+	if err := store.Import(ctx, src, "force/f.txt", true); err != nil {
+		t.Fatalf("second Import (force): %v", err)
+	}
+
+	var idx *Index
+	if err := store.WalkIndexes(ctx, "", func(i *Index) error { idx = i; return nil }); err != nil {
+		t.Fatalf("WalkIndexes: %v", err)
+	}
+	d, err := loadData(ctx, filepath.Join(cfg.DataDir, idx.DataFile), c)
+	if err != nil {
+		t.Fatalf("loadData: %v", err)
+	}
+	if string(d.Content) != "updated\n" {
+		t.Errorf("content after force import = %q; want %q", d.Content, "updated\n")
+	}
+}
