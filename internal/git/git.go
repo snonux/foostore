@@ -1,4 +1,4 @@
-// Package git wraps git operations used by geheim to manage the secret store.
+// Package git wraps git operations used by foostore to manage the secret store.
 // It mirrors the Git module from the original Ruby implementation (geheim.rb lines 79-123),
 // running real git subprocesses rather than using a Go git library.
 package git

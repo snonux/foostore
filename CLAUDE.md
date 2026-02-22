@@ -32,15 +32,15 @@ Table-driven unit tests exist for all internal packages.
 ## Fish shell integration
 
 ```bash
-./install-fish.sh          # installs completions/geheim.fish and completions/ge.fish
+./install-fish.sh          # installs completions/foostore.fish and completions/ge.fish
 ```
 
 ## Configuration
 
 Config is read from `~/.config/foostore.json` at startup (merged over defaults). Key fields:
-- `data_dir`: Git repo where encrypted `.index` / `.data` file pairs are stored (default: `~/git/geheimlager`)
-- `key_file`: Path to the raw encryption key file (default: `~/.geheimlager.key`)
-- `export_dir`: Temporary directory for decrypted exports (default: `~/.geheimlagerexport`)
+- `data_dir`: Git repo where encrypted `.index` / `.data` file pairs are stored (default: `~/git/foostore-data`)
+- `key_file`: Path to the raw encryption key file (default: `~/.foostore.key`)
+- `export_dir`: Temporary directory for decrypted exports (default: `~/.foostore-export`)
 - `edit_cmd`: Editor used by the `edit` command (default: `$EDITOR`, falling back to `vi`)
 - `sync_repos`: List of git remote names to push/pull when syncing
 

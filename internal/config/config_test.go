@@ -78,9 +78,9 @@ func TestLoad_defaults(t *testing.T) {
 	cfg := Load()
 
 	cases := []struct{ name, got, want string }{
-		{"DataDir", cfg.DataDir, filepath.Join(dir, "git", "geheimlager")},
-		{"ExportDir", cfg.ExportDir, filepath.Join(dir, ".geheimlagerexport")},
-		{"KeyFile", cfg.KeyFile, filepath.Join(dir, ".geheimlager.key")},
+		{"DataDir", cfg.DataDir, filepath.Join(dir, "git", "foostore-data")},
+		{"ExportDir", cfg.ExportDir, filepath.Join(dir, ".foostore-export")},
+		{"KeyFile", cfg.KeyFile, filepath.Join(dir, ".foostore.key")},
 		{"EncAlg", cfg.EncAlg, "AES-256-CBC"},
 		{"AddToIV", cfg.AddToIV, "Hello world"},
 		{"EditCmd", cfg.EditCmd, "vi"},
@@ -145,7 +145,7 @@ func TestLoad_override(t *testing.T) {
 	if cfg.EncAlg != "AES-256-CBC" {
 		t.Errorf("EncAlg = %q; want AES-256-CBC", cfg.EncAlg)
 	}
-	if cfg.DataDir != filepath.Join(dir, "git", "geheimlager") {
+	if cfg.DataDir != filepath.Join(dir, "git", "foostore-data") {
 		t.Errorf("DataDir = %q; want default", cfg.DataDir)
 	}
 }

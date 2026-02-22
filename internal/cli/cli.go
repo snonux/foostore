@@ -1,4 +1,4 @@
-// Package cli implements the command-line interface for geheim.
+// Package cli implements the command-line interface for foostore.
 // It mirrors the Ruby CLI class (geheim.rb lines 551-713): parsing argv,
 // dispatching commands, and running an optional interactive readline shell.
 // Run() is the top-level entry point called by cmd/foostore/main.go.
@@ -138,10 +138,10 @@ func readPIN() (string, error) {
 // run dispatches a single command (when argv is non-empty and no shell flag is
 // set) or enters the interactive shell loop.  Returns an exit code.
 func (c *CLI) run(ctx context.Context, argv []string) int {
-	// Enter shell mode when: no arguments, $GEHEIM_SHELL is set, or the first
+	// Enter shell mode when: no arguments, $FOOSTORE_SHELL is set, or the first
 	// argument is "shell".  Mirrors the Ruby shell_loop entry conditions.
 	enterShell := len(argv) == 0 ||
-		os.Getenv("GEHEIM_SHELL") != "" ||
+		os.Getenv("FOOSTORE_SHELL") != "" ||
 		(len(argv) > 0 && argv[0] == "shell")
 
 	if enterShell {

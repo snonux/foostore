@@ -1,6 +1,6 @@
-// Package config handles loading and storing geheim configuration.
+// Package config handles loading and storing foostore configuration.
 // Defaults mirror the Ruby reference (geheim.rb Config::DEFAULTS).
-// A JSON file at ~/.config/geheim.json overrides individual fields;
+// A JSON file at ~/.config/foostore.json overrides individual fields;
 // missing fields keep their default values because Go's json.Unmarshal
 // only touches fields that are present in the JSON document.
 package config
@@ -17,7 +17,7 @@ import (
 const configPath = "~/.config/foostore.json"
 
 // Config holds all application-wide configuration values.
-// JSON field names use snake_case to match geheim.rb Config::DEFAULTS keys.
+// JSON field names use snake_case to match the original geheim.rb Config::DEFAULTS keys.
 type Config struct {
 	DataDir           string   `json:"data_dir"`
 	ExportDir         string   `json:"export_dir"`
@@ -46,9 +46,9 @@ func defaultConfig() Config {
 	}
 
 	return Config{
-		DataDir:           filepath.Join(home, "git", "geheimlager"),
-		ExportDir:         filepath.Join(home, ".geheimlagerexport"),
-		KeyFile:           filepath.Join(home, ".geheimlager.key"),
+		DataDir:           filepath.Join(home, "git", "foostore-data"),
+		ExportDir:         filepath.Join(home, ".foostore-export"),
+		KeyFile:           filepath.Join(home, ".foostore.key"),
 		KeyLength:         32,
 		EncAlg:            "AES-256-CBC",
 		AddToIV:           "Hello world",

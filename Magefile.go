@@ -1,6 +1,6 @@
 //go:build mage
 
-// Magefile provides build targets for the geheim project.
+// Magefile provides build targets for the foostore project.
 // Targets: Default (Build), Build, Test, Vet, Install, Uninstall, Clean
 // Follows the same style as other projects (e.g. hexai).
 package main
@@ -24,7 +24,7 @@ const (
 // Default builds the binary so that a bare `mage` invocation is equivalent to `mage build`.
 func Default() { mg.Deps(Build) }
 
-// Build compiles the binary to ./bin/geheim.
+// Build compiles the binary to ./bin/foostore.
 func Build() error {
 	mg.Deps(createBinDir)
 	fmt.Println("Building", binary)

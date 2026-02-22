@@ -1,4 +1,4 @@
-// Package store manages the geheim secret store on disk.
+// Package store manages the foostore secret store on disk.
 // It mirrors the Geheim class from the Ruby reference (geheim.rb lines 341-549),
 // providing add/import/remove/search/export operations over the encrypted file pairs
 // (.index + .data) stored in cfg.DataDir.

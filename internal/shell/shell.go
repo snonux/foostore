@@ -1,4 +1,4 @@
-// Package shell provides interactive readline-based shell integration for geheim.
+// Package shell provides interactive readline-based shell integration for foostore.
 // It wraps github.com/ergochat/readline to offer vi mode, tab completion,
 // history deduplication (matching the Ruby reference implementation), and
 // password reading without echo.
