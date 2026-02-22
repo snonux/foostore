@@ -46,7 +46,7 @@ func defaultConfig() Config {
 	}
 
 	return Config{
-		DataDir:           filepath.Join(home, "git", "foostore-data"),
+		DataDir:           filepath.Join(home, "git", "foostoredb"),
 		ExportDir:         filepath.Join(home, ".foostore-export"),
 		KeyFile:           filepath.Join(home, ".foostore.key"),
 		KeyLength:         32,

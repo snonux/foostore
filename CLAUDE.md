@@ -38,7 +38,7 @@ Table-driven unit tests exist for all internal packages.
 ## Configuration
 
 Config is read from `~/.config/foostore.json` at startup (merged over defaults). Key fields:
-- `data_dir`: Git repo where encrypted `.index` / `.data` file pairs are stored (default: `~/git/foostore-data`)
+- `data_dir`: Git repo where encrypted `.index` / `.data` file pairs are stored (default: `~/git/foostoredb`)
 - `key_file`: Path to the raw encryption key file (default: `~/.foostore.key`)
 - `export_dir`: Temporary directory for decrypted exports (default: `~/.foostore-export`)
 - `edit_cmd`: Editor used by the `edit` command (default: `$EDITOR`, falling back to `vi`)
