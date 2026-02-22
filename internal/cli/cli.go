@@ -59,20 +59,21 @@ type CLI struct {
 	lastResult string // most recent search result description
 }
 
-// Run is the package-level entry point called by cmd/geheim/main.go.
-// It creates a CLI, then either dispatches a single command from os.Args
-// or enters the interactive shell loop, and returns an exit code.
-func Run() int {
-	ctx := context.Background()
+// New initialises all runtime dependencies (config, PIN, cipher, store, git,
+// clipboard, shell) and returns a ready-to-use CLI.  cmd/geheim/main.go calls
+// New with a signal-cancellable context so that long-running operations (fzf,
+// external editors) are interrupted cleanly on SIGINT/SIGTERM.
+func New(ctx context.Context) (*CLI, error) {
+	return newCLI(ctx)
+}
 
-	c, err := newCLI(ctx)
-	if err != nil {
-		fatal(err.Error()) // fatal calls os.Exit(3) and does not return
-		return 3           //nolint:govet // unreachable; present for compiler flow analysis
-	}
+// Run dispatches argv (typically os.Args[1:]) to the appropriate handler or
+// enters the interactive shell loop.  Returns an exit code suitable for
+// os.Exit.  The caller is responsible for calling sh.Close() when done;
+// cmd/geheim/main.go does this via defer.
+func (c *CLI) Run(ctx context.Context, argv []string) int {
 	defer c.sh.Close()
-
-	return c.run(ctx, os.Args[1:])
+	return c.run(ctx, argv)
 }
 
 // newCLI initialises all dependencies: config, PIN, cipher, store, git,
