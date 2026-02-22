@@ -198,3 +198,69 @@ func TestCommit_nothing_to_commit(t *testing.T) {
 		t.Fatal("expected error when committing with nothing to commit, got nil")
 	}
 }
+
+// TestRemove_nonexistent_file verifies that Remove returns an error when the
+// target is not tracked by git, because git rm exits non-zero in that case.
+func TestRemove_nonexistent_file(t *testing.T) {
+	dir := initRepo(t)
+	g := git.New(dir)
+	ctx := context.Background()
+
+	err := g.Remove(ctx, filepath.Join(dir, "ghost.age"))
+	if err == nil {
+		t.Fatal("expected error when removing a non-tracked file, got nil")
+	}
+}
+
+// TestSync verifies the pull-push-status loop using two local repos so no
+// real network is needed. A bare repo acts as the remote; a working repo
+// with an initial commit pushes to it, then Sync pulls and pushes again.
+func TestSync(t *testing.T) {
+	ctx := context.Background()
+
+	runcmd := func(args ...string) {
+		t.Helper()
+		out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Create a working directory with an initial commit on master.
+	workDir := t.TempDir()
+	runcmd("git", "init", "--initial-branch=master", workDir)
+	runcmd("git", "-C", workDir, "config", "user.email", "test@geheim.test")
+	runcmd("git", "-C", workDir, "config", "user.name", "Geheim Test")
+	path := filepath.Join(workDir, "init.txt")
+	if err := os.WriteFile(path, []byte("init"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	runcmd("git", "-C", workDir, "add", ".")
+	runcmd("git", "-C", workDir, "commit", "-m", "init")
+
+	// Create a bare repo and push the initial commit into it so master exists.
+	bareDir := t.TempDir()
+	runcmd("git", "init", "--bare", "--initial-branch=master", bareDir)
+	runcmd("git", "-C", workDir, "remote", "add", "localremote", bareDir)
+	runcmd("git", "-C", workDir, "push", "localremote", "master")
+
+	g := git.New(workDir)
+	if err := g.Sync(ctx, []string{"localremote"}); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+}
+
+// TestSync_bad_remote verifies that Sync returns an error when a configured
+// remote does not exist, rather than silently succeeding.
+func TestSync_bad_remote(t *testing.T) {
+	dir := initRepo(t)
+	// Create an initial commit so the repo has a valid HEAD.
+	writeFile(t, dir, "init.txt", "init")
+	commitAll(t, dir, "init")
+
+	g := git.New(dir)
+	err := g.Sync(context.Background(), []string{"nonexistent-remote"})
+	if err == nil {
+		t.Fatal("expected error when syncing with a nonexistent remote, got nil")
+	}
+}

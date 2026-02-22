@@ -72,6 +72,12 @@ func (g *Git) Sync(ctx context.Context, syncRepos []string) error {
 // run executes a git command in the given directory, printing each line of
 // combined stdout+stderr with a "> " prefix so the user can follow progress.
 // It returns an error if the command exits with a non-zero status.
+//
+// Output is intentionally buffered: all output is captured into a bytes.Buffer
+// and printed only after the subprocess exits. This matches the Ruby reference
+// implementation (which uses backtick capture) and keeps the "> " prefix logic
+// simple. For long-running operations like git pull the user sees no output
+// until the command completes — an acceptable tradeoff for a personal tool.
 func run(ctx context.Context, dir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
