@@ -1,5 +1,5 @@
 module codeberg.org/snonux/geheim
 
-go 1.22
+go 1.24
 
 require github.com/magefile/mage v1.15.0

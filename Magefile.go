@@ -1,10 +1,11 @@
 //go:build mage
 
 // Magefile provides build targets for the geheim project.
-// Targets: Build, Test, Install, Uninstall
+// Targets: Build, Test, Vet, Install, Uninstall, Clean
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -30,7 +31,13 @@ func Test() error {
 	return sh.RunV("go", "test", "./...")
 }
 
-// Install builds the binary and copies it to ~/.local/bin/geheim.
+// Vet runs go vet on all packages.
+func Vet() error {
+	fmt.Println("Vetting")
+	return sh.RunV("go", "vet", "./...")
+}
+
+// Install builds the binary, copies it to ~/.local/bin/geheim, and sets executable permissions.
 func Install() error {
 	mg.Deps(Build)
 	home, err := os.UserHomeDir()
@@ -39,10 +46,14 @@ func Install() error {
 	}
 	dest := home + "/.local/bin/geheim"
 	fmt.Println("Installing to", dest)
-	return sh.Copy(dest, binary)
+	if err := sh.Copy(dest, binary); err != nil {
+		return err
+	}
+	return os.Chmod(dest, 0755)
 }
 
 // Uninstall removes the installed binary from ~/.local/bin/geheim.
+// It is idempotent: if the binary is not installed, it succeeds silently.
 func Uninstall() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -50,7 +61,16 @@ func Uninstall() error {
 	}
 	dest := home + "/.local/bin/geheim"
 	fmt.Println("Uninstalling", dest)
-	return os.Remove(dest)
+	if err := os.Remove(dest); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// Clean removes the ./bin directory.
+func Clean() error {
+	fmt.Println("Cleaning", "./bin")
+	return os.RemoveAll("./bin")
 }
 
 // createBinDir ensures ./bin exists before the build step writes the binary.
