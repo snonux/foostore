@@ -10,6 +10,14 @@ import (
 	"regexp"
 )
 
+// matchRe captures the first non-whitespace:non-whitespace pair in a string,
+// identifying the user and password fields.  Compiled once at startup.
+var matchRe = regexp.MustCompile(`(\S+):(\S+)`)
+
+// censorRe replaces every non-whitespace:non-whitespace token with word:CENSORED
+// so the password is redacted while the user and context are preserved.
+var censorRe = regexp.MustCompile(`(\S+):\S+`)
+
 // Clipboard holds the OS-specific clipboard command to spawn.
 // The command receives the password via stdin.
 type Clipboard struct {
@@ -31,9 +39,9 @@ func New(gnomeCmd, macosCmd string) *Clipboard {
 // and prints the censored form of data to stdout so the operator can see
 // contextual information without the secret being visible.
 //
-// The Ruby implementation spawns the clipboard command with an IO pipe and
-// detaches the child process. Here we use os/exec with a StdinPipe and
-// Wait() for simplicity; the behaviour is equivalent for interactive use.
+// The clipboard command is started and immediately detached (the wait is done
+// in a goroutine), matching the Ruby `Process.detach` behaviour so the caller
+// is not blocked waiting for the clipboard daemon to exit.
 func (c *Clipboard) Paste(ctx context.Context, data string) error {
 	user, password, censored, err := extract(data)
 	if err != nil {
@@ -62,12 +70,12 @@ func (c *Clipboard) Paste(ctx context.Context, data string) error {
 	}
 	stdin.Close()
 
+	// Detach: reap the child in the background so the parent is not blocked.
+	// This matches the Ruby `Process.detach(pid)` call.
+	go func() { _ = clipCmd.Wait() }()
+
 	// Print the censored representation so the operator sees context.
 	fmt.Println(censored)
-
-	if err := clipCmd.Wait(); err != nil {
-		return fmt.Errorf("clipboard command exited with error: %w", err)
-	}
 
 	fmt.Printf("> Pasted password for user '%s' to the clipboard\n", user)
 	return nil
@@ -79,12 +87,10 @@ func (c *Clipboard) Paste(ctx context.Context, data string) error {
 //   - censored – data with every "word:secret" token replaced by "word:CENSORED"
 //
 // Regex mirrors the Ruby: /(\S+):(\S+)/ for matching and substitution.
+// Both sides of the match are greedy (\S+), so for multi-colon tokens like
+// "user:pass:extra" the split occurs at the last colon, yielding
+// user="user:pass" and password="extra" — identical to Ruby's behaviour.
 func extract(data string) (user, password, censored string, err error) {
-	// matchRe captures the first non-whitespace:non-whitespace pair.
-	matchRe := regexp.MustCompile(`(\S+):(\S+)`)
-	// censorRe replaces every such pair; the first capture group is kept.
-	censorRe := regexp.MustCompile(`(\S+):\S+`)
-
 	parts := matchRe.FindStringSubmatch(data)
 	if parts == nil {
 		return "", "", "", fmt.Errorf("no user:password pattern found in data")
