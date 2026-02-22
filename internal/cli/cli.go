@@ -679,9 +679,3 @@ func logMsg(msg string) { fmt.Printf("> %s\n", msg) }
 
 // warn prints a "WARN " prefixed message to stderr.
 func warn(msg string) { fmt.Fprintf(os.Stderr, "WARN %s\n", msg) }
-
-// fatal prints a "FATAL " prefixed message to stderr and exits with code 3.
-func fatal(msg string) { fmt.Fprintf(os.Stderr, "FATAL %s\n", msg); os.Exit(3) }
-
-// prompt prints a prompt string without a trailing newline.
-func prompt(msg string) { fmt.Printf("< %s", msg) }

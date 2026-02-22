@@ -1,19 +1,30 @@
 // main is the thin entry point for the geheim binary.
-// It sets up a signal-cancellable context, initialises the CLI, and exits
-// with the code returned by Run.  All command logic lives in internal/cli.
+// It handles the -version flag, sets up a signal-cancellable context,
+// initialises the CLI, and exits with the code returned by Run.
+// All command logic lives in internal/cli.
 package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"codeberg.org/snonux/geheim/internal/cli"
+	"codeberg.org/snonux/geheim/internal/version"
 )
 
 func main() {
+	// -version prints the build version and exits immediately.
+	versionFlag := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+	if *versionFlag {
+		fmt.Println(version.Version)
+		os.Exit(0)
+	}
+
 	// Cancel the context on SIGINT or SIGTERM so that long-running operations
 	// (fzf, external editors) terminate gracefully rather than being killed hard.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -25,5 +36,8 @@ func main() {
 		os.Exit(3)
 	}
 
-	os.Exit(c.Run(ctx, os.Args[1:]))
+	// flag.Args() returns arguments after flags, so flag-aware invocations
+	// like `geheim -version` work while plain `geheim cat foo` still passes
+	// all args through unchanged.
+	os.Exit(c.Run(ctx, flag.Args()))
 }

@@ -1,22 +1,28 @@
 //go:build mage
 
 // Magefile provides build targets for the geheim project.
-// Targets: Build, Test, Vet, Install, Uninstall, Clean
+// Targets: Default (Build), Build, Test, Vet, Install, Uninstall, Clean
+// Follows the same style as other projects (e.g. hexai).
 package main
 
 import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/magefile/mage/mg"
 	"github.com/magefile/mage/sh"
 )
 
 const (
-	binary  = "./bin/geheim"
-	mainPkg = "./cmd/geheim"
+	binary     = "./bin/geheim"
+	binaryName = "geheim"
+	mainPkg    = "./cmd/geheim"
 )
+
+// Default builds the binary so that a bare `mage` invocation is equivalent to `mage build`.
+func Default() { mg.Deps(Build) }
 
 // Build compiles the binary to ./bin/geheim.
 func Build() error {
@@ -37,29 +43,43 @@ func Vet() error {
 	return sh.RunV("go", "vet", "./...")
 }
 
-// Install builds the binary, copies it to ~/.local/bin/geheim, and sets executable permissions.
+// Install builds the binary and copies it to $GOPATH/bin (default ~/go/bin).
 func Install() error {
 	mg.Deps(Build)
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot determine home directory: %w", err)
+
+	// Resolve GOPATH; fall back to ~/go when the environment variable is unset.
+	gopath := os.Getenv("GOPATH")
+	if gopath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("resolving home directory: %w", err)
+		}
+		gopath = filepath.Join(home, "go")
 	}
-	dest := home + "/.local/bin/geheim"
-	fmt.Println("Installing to", dest)
-	if err := sh.Copy(dest, binary); err != nil {
-		return err
+
+	binDir := filepath.Join(gopath, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return fmt.Errorf("creating %s: %w", binDir, err)
 	}
-	return os.Chmod(dest, 0755)
+
+	dest := filepath.Join(binDir, binaryName)
+	return sh.RunV("cp", "-v", binary, dest)
 }
 
-// Uninstall removes the installed binary from ~/.local/bin/geheim.
+// Uninstall removes the binary from $GOPATH/bin (default ~/go/bin).
 // It is idempotent: if the binary is not installed, it succeeds silently.
 func Uninstall() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("cannot determine home directory: %w", err)
+	// Mirror Install()'s GOPATH resolution so the paths always match.
+	gopath := os.Getenv("GOPATH")
+	if gopath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("resolving home directory: %w", err)
+		}
+		gopath = filepath.Join(home, "go")
 	}
-	dest := home + "/.local/bin/geheim"
+
+	dest := filepath.Join(gopath, "bin", binaryName)
 	fmt.Println("Uninstalling", dest)
 	if err := os.Remove(dest); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -75,5 +95,5 @@ func Clean() error {
 
 // createBinDir ensures ./bin exists before the build step writes the binary.
 func createBinDir() error {
-	return os.MkdirAll("./bin", 0755)
+	return os.MkdirAll("./bin", 0o755)
 }
