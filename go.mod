@@ -1,4 +1,4 @@
-module codeberg.org/snonux/geheim
+module codeberg.org/snonux/foostore
 
 go 1.24.0
 

@@ -1,7 +1,7 @@
 // Package cli implements the command-line interface for geheim.
 // It mirrors the Ruby CLI class (geheim.rb lines 551-713): parsing argv,
 // dispatching commands, and running an optional interactive readline shell.
-// Run() is the top-level entry point called by cmd/geheim/main.go.
+// Run() is the top-level entry point called by cmd/foostore/main.go.
 package cli
 
 import (
@@ -15,13 +15,13 @@ import (
 	"runtime"
 	"strings"
 
-	"codeberg.org/snonux/geheim/internal/clipboard"
-	"codeberg.org/snonux/geheim/internal/config"
-	"codeberg.org/snonux/geheim/internal/crypto"
-	"codeberg.org/snonux/geheim/internal/git"
-	"codeberg.org/snonux/geheim/internal/shell"
-	"codeberg.org/snonux/geheim/internal/store"
-	"codeberg.org/snonux/geheim/internal/version"
+	"codeberg.org/snonux/foostore/internal/clipboard"
+	"codeberg.org/snonux/foostore/internal/config"
+	"codeberg.org/snonux/foostore/internal/crypto"
+	"codeberg.org/snonux/foostore/internal/git"
+	"codeberg.org/snonux/foostore/internal/shell"
+	"codeberg.org/snonux/foostore/internal/store"
+	"codeberg.org/snonux/foostore/internal/version"
 )
 
 // CommandList is the canonical list of supported commands, ordered to match
@@ -60,7 +60,7 @@ type CLI struct {
 }
 
 // New initialises all runtime dependencies (config, PIN, cipher, store, git,
-// clipboard, shell) and returns a ready-to-use CLI.  cmd/geheim/main.go calls
+// clipboard, shell) and returns a ready-to-use CLI.  cmd/foostore/main.go calls
 // New with a signal-cancellable context so that long-running operations (fzf,
 // external editors) are interrupted cleanly on SIGINT/SIGTERM.
 func New(ctx context.Context) (*CLI, error) {
@@ -70,7 +70,7 @@ func New(ctx context.Context) (*CLI, error) {
 // Run dispatches argv (typically os.Args[1:]) to the appropriate handler or
 // enters the interactive shell loop.  Returns an exit code suitable for
 // os.Exit.  The caller is responsible for calling sh.Close() when done;
-// cmd/geheim/main.go does this via defer.
+// cmd/foostore/main.go does this via defer.
 func (c *CLI) Run(ctx context.Context, argv []string) int {
 	defer c.sh.Close()
 	return c.run(ctx, argv)
@@ -297,7 +297,7 @@ func (c *CLI) dispatchSimple(ctx context.Context, argv []string, cmd string) (in
 		return 0, "", true
 
 	case "version":
-		logMsg(fmt.Sprintf("geheim %s", version.Version))
+		logMsg(fmt.Sprintf("foostore %s", version.Version))
 		return 0, "", true
 
 	case "commands":
@@ -315,7 +315,7 @@ func (c *CLI) dispatchSimple(ctx context.Context, argv []string, cmd string) (in
 		// dispatch is called, so this branch only fires in one-shot mode where
 		// switching to interactive mode is not meaningful.  We print a notice and
 		// exit cleanly rather than silently doing nothing.
-		logMsg("Use geheim without arguments to enter interactive mode")
+		logMsg("Use foostore without arguments to enter interactive mode")
 		return 0, "", true
 
 	case "exit":

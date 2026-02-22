@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	binary     = "./bin/geheim"
-	binaryName = "geheim"
-	mainPkg    = "./cmd/geheim"
+	binary     = "./bin/foostore"
+	binaryName = "foostore"
+	mainPkg    = "./cmd/foostore"
 )
 
 // Default builds the binary so that a bare `mage` invocation is equivalent to `mage build`.

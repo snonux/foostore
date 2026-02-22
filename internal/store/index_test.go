@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"codeberg.org/snonux/geheim/internal/crypto"
+	"codeberg.org/snonux/foostore/internal/crypto"
 )
 
 // newTestIndexCipher is a local helper to avoid import cycle via store_test.go.

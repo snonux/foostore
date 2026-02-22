@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"codeberg.org/snonux/geheim/internal/shell"
+	"codeberg.org/snonux/foostore/internal/shell"
 )
 
 // isTTY returns true when stdin is connected to an actual terminal.

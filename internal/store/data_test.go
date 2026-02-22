@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"codeberg.org/snonux/geheim/internal/crypto"
+	"codeberg.org/snonux/foostore/internal/crypto"
 )
 
 // --- helpers -----------------------------------------------------------------

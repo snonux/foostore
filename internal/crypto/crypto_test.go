@@ -294,7 +294,7 @@ func TestEncryptGolden(t *testing.T) {
 			wantHex:   "6190f985f42374d24dd8e17b3b2d6057",
 		},
 		{
-			name: "Hello world / pin=abcd1234 / 64x 'y'",
+			name:      "Hello world / pin=abcd1234 / 64x 'y'",
 			plaintext: []byte("Hello, world!"),
 			pin:       "abcd1234",
 			// 64 bytes of 'y': key is already 2x the required 32 bytes so it gets truncated.

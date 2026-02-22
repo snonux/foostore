@@ -1,4 +1,4 @@
-// main is the thin entry point for the geheim binary.
+// main is the thin entry point for the foostore binary.
 // It handles the -version flag, sets up a signal-cancellable context,
 // initialises the CLI, and exits with the code returned by Run.
 // All command logic lives in internal/cli.
@@ -12,8 +12,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"codeberg.org/snonux/geheim/internal/cli"
-	"codeberg.org/snonux/geheim/internal/version"
+	"codeberg.org/snonux/foostore/internal/cli"
+	"codeberg.org/snonux/foostore/internal/version"
 )
 
 func main() {
@@ -37,7 +37,7 @@ func main() {
 	}
 
 	// flag.Args() returns arguments after flags, so flag-aware invocations
-	// like `geheim -version` work while plain `geheim cat foo` still passes
+	// like `foostore -version` work while plain `foostore cat foo` still passes
 	// all args through unchanged.
 	os.Exit(c.Run(ctx, flag.Args()))
 }

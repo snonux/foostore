@@ -14,7 +14,7 @@ import (
 )
 
 // configPath is the location of the optional user config file.
-const configPath = "~/.config/geheim.json"
+const configPath = "~/.config/foostore.json"
 
 // Config holds all application-wide configuration values.
 // JSON field names use snake_case to match geheim.rb Config::DEFAULTS keys.

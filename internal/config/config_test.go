@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// writeUserConfig creates the ~/.config/geheim.json file inside the given
+// writeUserConfig creates the ~/.config/foostore.json file inside the given
 // HOME directory (which must already exist).  Used to exercise Load() directly.
 func writeUserConfig(t *testing.T, home, content string) {
 	t.Helper()
@@ -17,7 +17,7 @@ func writeUserConfig(t *testing.T, home, content string) {
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	path := filepath.Join(cfgDir, "geheim.json")
+	path := filepath.Join(cfgDir, "foostore.json")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestLoad_invalid_json(t *testing.T) {
 // TestLoad_missing_file_no_warning verifies that a missing config file does NOT
 // produce any output — absence is normal for a first-run or unconfigured install.
 func TestLoad_missing_file_no_warning(t *testing.T) {
-	dir := t.TempDir() // no geheim.json inside
+	dir := t.TempDir() // no foostore.json inside
 	t.Setenv("HOME", dir)
 
 	stderr := captureStderr(func() { _ = Load() })
@@ -188,7 +188,7 @@ func TestLoad_unreadable_file(t *testing.T) {
 	writeUserConfig(t, dir, `{"edit_cmd":"nvim"}`)
 
 	// Make the file unreadable.
-	cfgPath := filepath.Join(dir, ".config", "geheim.json")
+	cfgPath := filepath.Join(dir, ".config", "foostore.json")
 	if err := os.Chmod(cfgPath, 0o000); err != nil {
 		t.Fatalf("Chmod: %v", err)
 	}

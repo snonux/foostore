@@ -19,9 +19,9 @@ import (
 	"sort"
 	"strings"
 
-	"codeberg.org/snonux/geheim/internal/config"
-	"codeberg.org/snonux/geheim/internal/crypto"
-	"codeberg.org/snonux/geheim/internal/git"
+	"codeberg.org/snonux/foostore/internal/config"
+	"codeberg.org/snonux/foostore/internal/crypto"
+	"codeberg.org/snonux/foostore/internal/git"
 )
 
 // Action describes what to do with each matching secret during a Search call.

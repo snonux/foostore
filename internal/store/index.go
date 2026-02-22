@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"codeberg.org/snonux/geheim/internal/crypto"
-	"codeberg.org/snonux/geheim/internal/git"
+	"codeberg.org/snonux/foostore/internal/crypto"
+	"codeberg.org/snonux/foostore/internal/git"
 )
 
 // Index represents a decrypted .index file and its associated .data path.
