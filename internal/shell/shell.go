@@ -6,10 +6,13 @@ package shell
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/ergochat/readline"
+	"golang.org/x/term"
 )
 
 // Shell manages an interactive readline loop with vi mode and tab completion.
@@ -83,9 +86,9 @@ func New(completionFn func(prefix string) []string) (*Shell, error) {
 
 // ReadLine reads one line from the terminal, applying history deduplication.
 //
-// Behaviour mirrors the Ruby shell_loop:
+// Behaviour:
 //   - Ctrl+D (EOF)       → returns ("", io.EOF) — caller should exit
-//   - Ctrl+C (interrupt) → returns ("", nil)    — empty line, continue
+//   - Ctrl+C (interrupt) → returns ("", io.EOF) — caller should exit (same as Ruby's SIGINT)
 //   - non-empty line     → saved to history only if it differs from the
 //     previous entry, then returned to the caller
 //
@@ -99,8 +102,9 @@ func (s *Shell) ReadLine(ctx context.Context) (string, error) {
 			return "", io.EOF
 		}
 		if err == readline.ErrInterrupt {
-			// Ctrl+C — return an empty line so the caller loops again.
-			return "", nil
+			// Ctrl+C — exit the shell, mirroring the Ruby behaviour where
+			// SIGINT terminates the process.
+			return "", io.EOF
 		}
 		return "", err
 	}
@@ -137,25 +141,17 @@ func (s *Shell) ReadPassword(prompt string) (string, error) {
 	return string(bytes), nil
 }
 
-// ReadPassword reads a password from stdin without echoing characters.
-// It is a package-level convenience function for use before the Shell is
-// created, such as during initial PIN entry at startup.
+// ReadPassword prints prompt then reads a password from the terminal without
+// echoing characters.  It uses golang.org/x/term for reliable cross-platform
+// masked input, bypassing the readline library which does not always display
+// the prompt correctly before the process is fully interactive.
 func ReadPassword(prompt string) (string, error) {
-	// Create a minimal, temporary readline instance solely for masked input.
-	// VimMode and history are irrelevant here; we just need the password-
-	// reading capability.
-	rl, err := readline.NewFromConfig(&readline.Config{
-		Prompt:       prompt,
-		HistoryLimit: -1, // disable history for this throwaway instance
-	})
-	if err != nil {
-		return "", err
-	}
-	defer rl.Close() //nolint:errcheck
+	fmt.Print(prompt)
+	defer fmt.Println() // move to next line after the user presses Enter
 
-	bytes, err := rl.ReadPassword(prompt)
+	b, err := term.ReadPassword(int(os.Stdin.Fd()))
 	if err != nil {
 		return "", err
 	}
-	return string(bytes), nil
+	return string(b), nil
 }
