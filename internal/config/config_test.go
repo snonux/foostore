@@ -69,9 +69,11 @@ func TestExpandTilde(t *testing.T) {
 
 // TestLoad_defaults verifies all 10 default values when no config file exists.
 // HOME is redirected to a temp dir so Load() looks for a file that will not exist.
+// EDITOR is unset so EditCmd falls back to "vi".
 func TestLoad_defaults(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("EDITOR", "") // ensure fallback to "vi"
 
 	cfg := Load()
 
@@ -81,7 +83,7 @@ func TestLoad_defaults(t *testing.T) {
 		{"KeyFile", cfg.KeyFile, filepath.Join(dir, ".geheimlager.key")},
 		{"EncAlg", cfg.EncAlg, "AES-256-CBC"},
 		{"AddToIV", cfg.AddToIV, "Hello world"},
-		{"EditCmd", cfg.EditCmd, "hx"},
+		{"EditCmd", cfg.EditCmd, "vi"},
 		{"GnomeClipboardCmd", cfg.GnomeClipboardCmd, "gpaste-client"},
 		{"MacOSClipboardCmd", cfg.MacOSClipboardCmd, "pbcopy"},
 	}
@@ -95,6 +97,27 @@ func TestLoad_defaults(t *testing.T) {
 	}
 	if len(cfg.SyncRepos) != 2 || cfg.SyncRepos[0] != "git1" || cfg.SyncRepos[1] != "git2" {
 		t.Errorf("SyncRepos = %v; want [git1 git2]", cfg.SyncRepos)
+	}
+}
+
+// TestLoad_editorEnvVar verifies that when $EDITOR is set, defaultConfig uses it
+// as the EditCmd, and that a JSON config value overrides $EDITOR.
+func TestLoad_editorEnvVar(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	// $EDITOR set, no config file — EditCmd must equal $EDITOR.
+	t.Setenv("EDITOR", "nano")
+	cfg := Load()
+	if cfg.EditCmd != "nano" {
+		t.Errorf("EditCmd = %q; want nano (from $EDITOR)", cfg.EditCmd)
+	}
+
+	// JSON config overrides $EDITOR.
+	writeUserConfig(t, dir, `{"edit_cmd":"vim"}`)
+	cfg = Load()
+	if cfg.EditCmd != "vim" {
+		t.Errorf("EditCmd = %q; want vim (from config file)", cfg.EditCmd)
 	}
 }
 
@@ -143,10 +166,12 @@ func TestLoad_pathOverride(t *testing.T) {
 }
 
 // TestLoad_invalid_json verifies that invalid JSON causes Load() to emit a
-// warning to stderr and return defaults.
+// warning to stderr and return defaults (including EditCmd = "vi" when EDITOR
+// is unset).
 func TestLoad_invalid_json(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("EDITOR", "") // ensure fallback to "vi"
 	writeUserConfig(t, dir, `{invalid json}`)
 
 	var cfg Config
@@ -156,8 +181,8 @@ func TestLoad_invalid_json(t *testing.T) {
 		t.Errorf("expected warning on stderr, got: %q", stderr)
 	}
 	// Defaults must be returned with the redirected HOME.
-	if cfg.EditCmd != "hx" {
-		t.Errorf("EditCmd = %q; want hx (default)", cfg.EditCmd)
+	if cfg.EditCmd != "vi" {
+		t.Errorf("EditCmd = %q; want vi (default)", cfg.EditCmd)
 	}
 	if cfg.KeyLength != 32 {
 		t.Errorf("KeyLength = %d; want 32 (default)", cfg.KeyLength)
@@ -179,12 +204,14 @@ func TestLoad_missing_file_no_warning(t *testing.T) {
 
 // TestLoad_unreadable_file verifies that a config file that exists but cannot
 // be read emits a warning and returns defaults (the !os.IsNotExist branch).
+// EDITOR is unset so EditCmd falls back to "vi".
 func TestLoad_unreadable_file(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("running as root: permission checks do not apply")
 	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("EDITOR", "") // ensure fallback to "vi"
 	writeUserConfig(t, dir, `{"edit_cmd":"nvim"}`)
 
 	// Make the file unreadable.
@@ -201,7 +228,7 @@ func TestLoad_unreadable_file(t *testing.T) {
 		t.Errorf("expected warning on stderr, got: %q", stderr)
 	}
 	// Must return pure defaults, not the file content.
-	if cfg.EditCmd != "hx" {
-		t.Errorf("EditCmd = %q; want hx (default)", cfg.EditCmd)
+	if cfg.EditCmd != "vi" {
+		t.Errorf("EditCmd = %q; want vi (default)", cfg.EditCmd)
 	}
 }

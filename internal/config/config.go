@@ -31,11 +31,20 @@ type Config struct {
 	SyncRepos         []string `json:"sync_repos"`
 }
 
-// defaultConfig returns a Config populated with the same defaults as the
-// Ruby reference implementation's Config::DEFAULTS.  It calls
-// os.UserHomeDir() so that path fields expand correctly at runtime.
+// defaultConfig returns a Config populated with built-in defaults.
+// EditCmd honours the $EDITOR environment variable and falls back to "vi"
+// when the variable is unset or empty, so users get their preferred editor
+// automatically without touching the config file.
+// It calls os.UserHomeDir() so that path fields expand correctly at runtime.
 func defaultConfig() Config {
 	home, _ := os.UserHomeDir()
+
+	// Prefer $EDITOR; fall back to vi if not set.
+	editCmd := os.Getenv("EDITOR")
+	if editCmd == "" {
+		editCmd = "vi"
+	}
+
 	return Config{
 		DataDir:           filepath.Join(home, "git", "geheimlager"),
 		ExportDir:         filepath.Join(home, ".geheimlagerexport"),
@@ -43,7 +52,7 @@ func defaultConfig() Config {
 		KeyLength:         32,
 		EncAlg:            "AES-256-CBC",
 		AddToIV:           "Hello world",
-		EditCmd:           "hx",
+		EditCmd:           editCmd,
 		GnomeClipboardCmd: "gpaste-client",
 		MacOSClipboardCmd: "pbcopy",
 		SyncRepos:         []string{"git1", "git2"},
@@ -68,8 +77,9 @@ func expandPathFields(cfg *Config) {
 	cfg.KeyFile = expandTilde(cfg.KeyFile)
 }
 
-// Load reads ~/.config/geheim.json and merges it over the built-in defaults.
-// Any field present in the JSON file overrides the corresponding default;
+// Load reads ~/.config/foostore.json and merges it over the built-in defaults.
+// Any field present in the JSON file overrides the corresponding default
+// (including edit_cmd, which defaults to $EDITOR or "vi" when unset);
 // fields absent from the file keep their default values.
 // If the file is missing or contains invalid JSON a warning is printed to
 // stderr and the pure defaults are returned.
