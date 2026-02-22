@@ -72,7 +72,9 @@ func expandPathFields(cfg *Config) {
 // Any field present in the JSON file overrides the corresponding default;
 // fields absent from the file keep their default values.
 // If the file is missing or contains invalid JSON a warning is printed to
-// stderr and the pure defaults are returned — matching the Ruby behaviour.
+// stderr and the pure defaults are returned.
+// Note: the Ruby reference uses puts (stdout) for this warning; we use stderr
+// intentionally because warnings belong on the error stream.
 func Load() Config {
 	cfg := defaultConfig()
 	path := expandTilde(configPath)

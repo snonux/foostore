@@ -3,57 +3,45 @@ package config
 import (
 	"bytes"
 	"io"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// homeDir is a test helper that returns the current user's home directory,
-// panicking if it cannot be determined (should never happen in tests).
-func homeDir(t *testing.T) string {
+// writeUserConfig creates the ~/.config/geheim.json file inside the given
+// HOME directory (which must already exist).  Used to exercise Load() directly.
+func writeUserConfig(t *testing.T, home, content string) {
 	t.Helper()
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("os.UserHomeDir: %v", err)
+	cfgDir := filepath.Join(home, ".config")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
 	}
-	return home
-}
-
-// writeConfigFile creates a temporary directory, writes content to
-// geheim.json inside it, and returns the file path.
-func writeConfigFile(t *testing.T, content string) string {
-	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "geheim.json")
+	path := filepath.Join(cfgDir, "geheim.json")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	return path
 }
 
-// loadFromPath replicates the Load() merge logic against an arbitrary file
-// path instead of the real ~/.config/geheim.json, so tests don't need to
-// redirect HOME or touch the real user config.
-func loadFromPath(path string) Config {
-	cfg := defaultConfig()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return cfg
-	}
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return defaultConfig()
-	}
-	expandPathFields(&cfg)
-	return cfg
+// captureStderr redirects os.Stderr to a pipe, calls fn, then returns whatever
+// was written to the pipe and restores the original os.Stderr.
+func captureStderr(fn func()) string {
+	orig := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+	fn()
+	w.Close()
+	os.Stderr = orig
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	return buf.String()
 }
 
-// ---- tests ------------------------------------------------------------------
+// ---- expandTilde -----------------------------------------------------------
 
-// TestExpandTilde verifies all three cases: tilde prefix, no tilde, empty string.
+// TestExpandTilde verifies the three expansion cases: tilde prefix, no tilde, empty.
 func TestExpandTilde(t *testing.T) {
-	home := homeDir(t)
+	home, _ := os.UserHomeDir()
 
 	cases := []struct {
 		name  string
@@ -77,57 +65,49 @@ func TestExpandTilde(t *testing.T) {
 	}
 }
 
-// TestLoad_defaults verifies that Load() returns fully-expanded default values
-// when the config file does not exist.  HOME is redirected to a temp dir so
-// Load() looks for a config file that is guaranteed not to exist.
+// ---- Load() ----------------------------------------------------------------
+
+// TestLoad_defaults verifies all 10 default values when no config file exists.
+// HOME is redirected to a temp dir so Load() looks for a file that will not exist.
 func TestLoad_defaults(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
 	cfg := Load()
-	home := dir // HOME was redirected, defaultConfig() uses the new value
 
-	if cfg.DataDir != filepath.Join(home, "git", "geheimlager") {
-		t.Errorf("DataDir = %q; want %q", cfg.DataDir, filepath.Join(home, "git", "geheimlager"))
+	cases := []struct{ name, got, want string }{
+		{"DataDir", cfg.DataDir, filepath.Join(dir, "git", "geheimlager")},
+		{"ExportDir", cfg.ExportDir, filepath.Join(dir, ".geheimlagerexport")},
+		{"KeyFile", cfg.KeyFile, filepath.Join(dir, ".geheimlager.key")},
+		{"EncAlg", cfg.EncAlg, "AES-256-CBC"},
+		{"AddToIV", cfg.AddToIV, "Hello world"},
+		{"EditCmd", cfg.EditCmd, "hx"},
+		{"GnomeClipboardCmd", cfg.GnomeClipboardCmd, "gpaste-client"},
+		{"MacOSClipboardCmd", cfg.MacOSClipboardCmd, "pbcopy"},
 	}
-	if cfg.ExportDir != filepath.Join(home, ".geheimlagerexport") {
-		t.Errorf("ExportDir = %q; want %q", cfg.ExportDir, filepath.Join(home, ".geheimlagerexport"))
-	}
-	if cfg.KeyFile != filepath.Join(home, ".geheimlager.key") {
-		t.Errorf("KeyFile = %q; want %q", cfg.KeyFile, filepath.Join(home, ".geheimlager.key"))
+	for _, tc := range cases {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q; want %q", tc.name, tc.got, tc.want)
+		}
 	}
 	if cfg.KeyLength != 32 {
 		t.Errorf("KeyLength = %d; want 32", cfg.KeyLength)
-	}
-	if cfg.EncAlg != "AES-256-CBC" {
-		t.Errorf("EncAlg = %q; want AES-256-CBC", cfg.EncAlg)
-	}
-	if cfg.AddToIV != "Hello world" {
-		t.Errorf("AddToIV = %q; want 'Hello world'", cfg.AddToIV)
-	}
-	if cfg.EditCmd != "hx" {
-		t.Errorf("EditCmd = %q; want hx", cfg.EditCmd)
-	}
-	if cfg.GnomeClipboardCmd != "gpaste-client" {
-		t.Errorf("GnomeClipboardCmd = %q; want gpaste-client", cfg.GnomeClipboardCmd)
-	}
-	if cfg.MacOSClipboardCmd != "pbcopy" {
-		t.Errorf("MacOSClipboardCmd = %q; want pbcopy", cfg.MacOSClipboardCmd)
 	}
 	if len(cfg.SyncRepos) != 2 || cfg.SyncRepos[0] != "git1" || cfg.SyncRepos[1] != "git2" {
 		t.Errorf("SyncRepos = %v; want [git1 git2]", cfg.SyncRepos)
 	}
 }
 
-// TestLoad_override verifies that fields present in the JSON file override
-// defaults while absent fields retain their default values.
+// TestLoad_override calls Load() directly (via a redirected HOME) and verifies
+// that JSON-supplied fields override defaults while absent fields keep defaults.
 func TestLoad_override(t *testing.T) {
-	jsonContent := `{"edit_cmd":"nvim","key_length":64,"sync_repos":["github","gitlab"]}`
-	path := writeConfigFile(t, jsonContent)
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	writeUserConfig(t, dir, `{"edit_cmd":"nvim","key_length":64,"sync_repos":["github","gitlab"]}`)
 
-	cfg := loadFromPath(path)
+	cfg := Load()
 
-	// Overridden fields.
+	// Overridden fields must change.
 	if cfg.EditCmd != "nvim" {
 		t.Errorf("EditCmd = %q; want nvim", cfg.EditCmd)
 	}
@@ -138,64 +118,44 @@ func TestLoad_override(t *testing.T) {
 		t.Errorf("SyncRepos = %v; want [github gitlab]", cfg.SyncRepos)
 	}
 
-	// Non-overridden fields must keep their defaults.
-	home := homeDir(t)
+	// Non-overridden fields must remain at their defaults (with the temp HOME).
 	if cfg.EncAlg != "AES-256-CBC" {
 		t.Errorf("EncAlg = %q; want AES-256-CBC", cfg.EncAlg)
 	}
-	if cfg.DataDir != filepath.Join(home, "git", "geheimlager") {
+	if cfg.DataDir != filepath.Join(dir, "git", "geheimlager") {
 		t.Errorf("DataDir = %q; want default", cfg.DataDir)
 	}
 }
 
-// TestLoad_pathOverride verifies that tilde paths supplied via JSON are
-// expanded to absolute paths after loading.
+// TestLoad_pathOverride calls Load() directly and verifies that a tilde path
+// supplied via JSON is expanded to an absolute path after loading.
 func TestLoad_pathOverride(t *testing.T) {
-	home := homeDir(t)
-	jsonContent := `{"data_dir":"~/custom/vault"}`
-	path := writeConfigFile(t, jsonContent)
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	writeUserConfig(t, dir, `{"data_dir":"~/custom/vault"}`)
 
-	cfg := loadFromPath(path)
+	cfg := Load()
 
-	want := filepath.Join(home, "custom", "vault")
+	want := filepath.Join(dir, "custom", "vault")
 	if cfg.DataDir != want {
 		t.Errorf("DataDir = %q; want %q", cfg.DataDir, want)
 	}
 }
 
-// TestLoad_invalid_json verifies that invalid JSON causes Load() to return
-// defaults and print a warning to stderr.
+// TestLoad_invalid_json verifies that invalid JSON causes Load() to emit a
+// warning to stderr and return defaults.
 func TestLoad_invalid_json(t *testing.T) {
-	// Write invalid JSON to the expected config location inside a temp HOME.
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, ".config")
-	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	badJSON := filepath.Join(cfgDir, "geheim.json")
-	if err := os.WriteFile(badJSON, []byte("{invalid json}"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	// Capture stderr to verify the warning message is emitted.
-	origStderr := os.Stderr
-	r, w, _ := os.Pipe()
-	os.Stderr = w
 	t.Setenv("HOME", dir)
+	writeUserConfig(t, dir, `{invalid json}`)
 
-	cfg := Load()
+	var cfg Config
+	stderr := captureStderr(func() { cfg = Load() })
 
-	w.Close()
-	os.Stderr = origStderr
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
-	stderrOutput := buf.String()
-
-	if !strings.Contains(stderrOutput, "Unable to read") {
-		t.Errorf("expected warning on stderr, got: %q", stderrOutput)
+	if !strings.Contains(stderr, "Unable to read") {
+		t.Errorf("expected warning on stderr, got: %q", stderr)
 	}
-
-	// Returned config must equal defaults (with the redirected HOME).
+	// Defaults must be returned with the redirected HOME.
 	if cfg.EditCmd != "hx" {
 		t.Errorf("EditCmd = %q; want hx (default)", cfg.EditCmd)
 	}
@@ -204,25 +164,44 @@ func TestLoad_invalid_json(t *testing.T) {
 	}
 }
 
-// TestLoad_missing_file_no_warning verifies that a missing config file does
-// NOT produce a warning on stderr — absence of the file is a normal condition
-// (first run or unconfigured installation).
+// TestLoad_missing_file_no_warning verifies that a missing config file does NOT
+// produce any output — absence is normal for a first-run or unconfigured install.
 func TestLoad_missing_file_no_warning(t *testing.T) {
 	dir := t.TempDir() // no geheim.json inside
-
-	origStderr := os.Stderr
-	r, w, _ := os.Pipe()
-	os.Stderr = w
 	t.Setenv("HOME", dir)
 
-	_ = Load()
+	stderr := captureStderr(func() { _ = Load() })
 
-	w.Close()
-	os.Stderr = origStderr
-	var buf bytes.Buffer
-	_, _ = io.Copy(&buf, r)
+	if stderr != "" {
+		t.Errorf("expected no stderr output for missing file, got: %q", stderr)
+	}
+}
 
-	if buf.Len() != 0 {
-		t.Errorf("expected no stderr output for missing file, got: %q", buf.String())
+// TestLoad_unreadable_file verifies that a config file that exists but cannot
+// be read emits a warning and returns defaults (the !os.IsNotExist branch).
+func TestLoad_unreadable_file(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root: permission checks do not apply")
+	}
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	writeUserConfig(t, dir, `{"edit_cmd":"nvim"}`)
+
+	// Make the file unreadable.
+	cfgPath := filepath.Join(dir, ".config", "geheim.json")
+	if err := os.Chmod(cfgPath, 0o000); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(cfgPath, 0o600) })
+
+	var cfg Config
+	stderr := captureStderr(func() { cfg = Load() })
+
+	if !strings.Contains(stderr, "Unable to read") {
+		t.Errorf("expected warning on stderr, got: %q", stderr)
+	}
+	// Must return pure defaults, not the file content.
+	if cfg.EditCmd != "hx" {
+		t.Errorf("EditCmd = %q; want hx (default)", cfg.EditCmd)
 	}
 }
