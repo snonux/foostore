@@ -1,19 +1,19 @@
-# Fish Shell Integration for Geheim
+# Fish Shell Integration for foostore
 
 ## Installation
 
 ### Automatic Installation
 
 ```bash
-cd /home/paul/git/geheim
+cd /home/paul/git/foostore
 ./install-fish.sh
 ```
 
 ### Manual Installation
 
-1. Copy the completion file for `geheim`:
+1. Copy the completion file for `foostore`:
 ```bash
-cp completions/geheim.fish ~/.config/fish/completions/
+cp completions/foostore.fish ~/.config/fish/completions/
 ```
 
 2. Copy the wrapper function for `ge`:
@@ -28,9 +28,9 @@ exec fish
 
 ## Usage
 
-### `geheim` command
+### `foostore` command
 
-The `geheim` command now has full tab completion:
+The `foostore` command now has full tab completion:
 - Tab complete all subcommands (ls, search, cat, paste, etc.)
 - Tab complete file paths for `import`
 - Tab complete the `force` flag for import
@@ -45,7 +45,7 @@ ge
 
 # Search shortcut (if not a known command, treats as search)
 ge mypassword
-# Same as: geheim search mypassword
+# Same as: foostore search mypassword
 
 # Explicit commands still work
 ge cat mypassword
@@ -61,7 +61,7 @@ For better security, entry completion only works when the `PIN` environment vari
 # Set PIN for session (entries will autocomplete)
 set -x PIN yourpin
 
-# Use geheim with autocomplete
+# Use foostore with autocomplete
 ge <TAB>
 
 # Unset PIN when done
@@ -72,9 +72,9 @@ Without `PIN` set, commands will still autocomplete, but entry names won't (to a
 
 ## Features
 
-- ✓ Dynamic command completion (fetched from `geheim commands`)
+- ✓ Dynamic command completion (fetched from `foostore commands`)
 - ✓ Smart search fallback in `ge` wrapper
 - ✓ Entry name completion (when PIN is set)
 - ✓ File path completion for import/export
 - ✓ Force flag completion
-- ✓ No hardcoded command lists (stays in sync with geheim updates)
+- ✓ No hardcoded command lists (stays in sync with foostore updates)

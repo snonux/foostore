@@ -1,35 +1,35 @@
-# Fish wrapper and completion for ge (geheim shortcut)
+# Fish wrapper and completion for ge (foostore shortcut)
 # Install to ~/.config/fish/functions/ge.fish
 
-function ge --description 'Geheim wrapper with shortcuts'
+function ge --description 'foostore wrapper with shortcuts'
     # If no arguments, run interactive mode
     if test (count $argv) -eq 0
-        geheim shell
+        foostore shell
         return $status
     end
 
     set -l cmd $argv[1]
-    
+
     # Check if first argument is a known command
-    if contains $cmd (geheim commands 2>/dev/null)
-        # It's a command, pass through to geheim
-        geheim $argv
+    if contains $cmd (foostore commands 2>/dev/null)
+        # It's a command, pass through to foostore
+        foostore $argv
     else
         # Not a command, treat as search term
-        geheim search $argv
+        foostore search $argv
     end
 end
 
-# Dynamically load commands from geheim
+# Dynamically load commands from foostore
 function __fish_ge_commands
-    geheim commands 2>/dev/null
+    foostore commands 2>/dev/null
 end
 
 # Get list of entries for completion
 function __fish_ge_entries
     # Only run if PIN is set to avoid interactive prompt
     if set -q PIN
-        geheim ls 2>/dev/null | string replace -r ';.*$' '' | string trim
+        foostore ls 2>/dev/null | string replace -r ';.*$' '' | string trim
     end
 end
 

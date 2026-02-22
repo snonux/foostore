@@ -2,15 +2,15 @@
 
 set -e
 
-echo "Installing geheim fish shell integration..."
+echo "Installing foostore fish shell integration..."
 
 # Create directories if they don't exist
 mkdir -p ~/.config/fish/completions
 mkdir -p ~/.config/fish/functions
 
 # Copy completion files
-echo "Installing geheim completion..."
-cp completions/geheim.fish ~/.config/fish/completions/
+echo "Installing foostore completion..."
+cp completions/foostore.fish ~/.config/fish/completions/
 
 echo "Installing ge wrapper function..."
 cp completions/ge.fish ~/.config/fish/functions/
