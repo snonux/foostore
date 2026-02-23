@@ -850,6 +850,121 @@ func TestFzfEmpty(t *testing.T) {
 	}
 }
 
+// TestParsePickerAction verifies fzf key line parsing for supported picker
+// actions and unknown values.
+func TestParsePickerAction(t *testing.T) {
+	cases := []struct {
+		name    string
+		keyLine string
+		want    PickerAction
+		ok      bool
+	}{
+		{name: "enter", keyLine: "enter", want: PickerSelect, ok: true},
+		{name: "blank means enter", keyLine: "", want: PickerSelect, ok: true},
+		{name: "cat", keyLine: "ctrl-t", want: PickerCat, ok: true},
+		{name: "paste", keyLine: "ctrl-y", want: PickerPaste, ok: true},
+		{name: "open", keyLine: "ctrl-o", want: PickerOpen, ok: true},
+		{name: "edit", keyLine: "ctrl-e", want: PickerEdit, ok: true},
+		{name: "unknown", keyLine: "ctrl-x", want: "", ok: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := parsePickerAction(tc.keyLine)
+			if ok != tc.ok {
+				t.Fatalf("parsePickerAction(%q) ok = %v; want %v", tc.keyLine, ok, tc.ok)
+			}
+			if got != tc.want {
+				t.Fatalf("parsePickerAction(%q) = %q; want %q", tc.keyLine, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestParsePickerResult checks output decoding from fzf --expect mode.
+func TestParsePickerResult(t *testing.T) {
+	idMap := map[string]string{
+		"1": "alpha/secret.txt",
+		"2": "photo.jpg",
+	}
+
+	cases := []struct {
+		name   string
+		output string
+		want   PickerResult
+	}{
+		{
+			name:   "ctrl-y paste",
+			output: "ctrl-y\n1\talpha/secret.txt\tTEXT\tabcdef1234\n",
+			want:   PickerResult{Description: "alpha/secret.txt", Action: PickerPaste},
+		},
+		{
+			name:   "enter select",
+			output: "enter\n2\tphoto.jpg\tBINARY\tff00ff00ff\n",
+			want:   PickerResult{Description: "photo.jpg", Action: PickerSelect},
+		},
+		{
+			name:   "cancel or empty output",
+			output: "",
+			want:   PickerResult{},
+		},
+		{
+			name:   "unknown key ignored",
+			output: "ctrl-x\n1\talpha/secret.txt\tTEXT\tabcdef1234\n",
+			want:   PickerResult{},
+		},
+		{
+			name:   "unknown id ignored",
+			output: "enter\n999\tmissing\tTEXT\tabcdef1234\n",
+			want:   PickerResult{},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parsePickerResult(tc.output, idMap)
+			if got != tc.want {
+				t.Fatalf("parsePickerResult() = %+v; want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPickerColorTheme verifies supported theme presets and fallback behavior.
+func TestPickerColorTheme(t *testing.T) {
+	if got := pickerColorTheme("bold"); got == "" {
+		t.Fatal("pickerColorTheme(bold) returned empty string")
+	}
+	if got := pickerColorTheme("clean"); got == "" {
+		t.Fatal("pickerColorTheme(clean) returned empty string")
+	}
+	if got := pickerColorTheme("mono"); got == "" {
+		t.Fatal("pickerColorTheme(mono) returned empty string")
+	}
+	// Unknown themes must fall back to bold.
+	if pickerColorTheme("unknown") != pickerColorTheme("bold") {
+		t.Fatal("unknown theme did not fall back to bold")
+	}
+}
+
+// TestBuildFzfArgs_envOverrides verifies default args and extra user opts.
+func TestBuildFzfArgs_envOverrides(t *testing.T) {
+	t.Setenv("FOOSTORE_TUI_THEME", "clean")
+	t.Setenv("FOOSTORE_FZF_OPTS", "--cycle --no-mouse")
+
+	args := buildFzfArgs(12)
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--expect=enter,ctrl-t,ctrl-y,ctrl-o,ctrl-e") {
+		t.Fatalf("expected --expect in args, got: %v", args)
+	}
+	if !strings.Contains(joined, "--cycle") || !strings.Contains(joined, "--no-mouse") {
+		t.Fatalf("expected FOOSTORE_FZF_OPTS to be appended, got: %v", args)
+	}
+	if !strings.Contains(joined, "--color=") {
+		t.Fatalf("expected color option, got: %v", args)
+	}
+}
+
 // --- TestRemoveInteractiveInvalidThenDecline ---------------------------------
 
 // TestRemoveInteractiveInvalidThenDecline exercises the retry loop in

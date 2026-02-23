@@ -5,6 +5,8 @@ package shell
 import (
 	"strings"
 	"testing"
+
+	"github.com/ergochat/readline"
 )
 
 // TestPrefixCompleterDo exercises the Do method of prefixCompleter against a
@@ -93,6 +95,58 @@ func TestPrefixCompleterDo(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestVIInputFilter verifies vi-style modal key translation used by shell and
+// PIN prompts through FuncFilterInputRune.
+func TestVIInputFilter(t *testing.T) {
+	v := newVIInputFilter()
+
+	// Insert mode passes regular typing through unchanged.
+	if r, ok := v.filter('x'); !ok || r != 'x' {
+		t.Fatalf("insert mode passthrough got (%q,%v), want ('x',true)", r, ok)
+	}
+
+	// Esc enters normal mode and is swallowed.
+	if r, ok := v.filter(readline.CharEsc); ok || r != 0 {
+		t.Fatalf("esc got (%q,%v), want (0,false)", r, ok)
+	}
+
+	// Normal-mode movement mappings.
+	cases := []struct {
+		in   rune
+		want rune
+	}{
+		{'h', readline.CharBackward},
+		{'j', readline.CharNext},
+		{'k', readline.CharPrev},
+		{'l', readline.CharForward},
+		{'w', readline.MetaForward},
+		{'b', readline.MetaBackward},
+		{'0', readline.CharLineStart},
+		{'$', readline.CharLineEnd},
+	}
+	for _, tc := range cases {
+		if r, ok := v.filter(tc.in); !ok || r != tc.want {
+			t.Fatalf("normal mapping %q got (%q,%v), want (%q,true)", tc.in, r, ok, tc.want)
+		}
+	}
+
+	// "i" returns to insert mode and is swallowed.
+	if r, ok := v.filter('i'); ok || r != 0 {
+		t.Fatalf("i got (%q,%v), want (0,false)", r, ok)
+	}
+	if r, ok := v.filter('z'); !ok || r != 'z' {
+		t.Fatalf("insert mode after i got (%q,%v), want ('z',true)", r, ok)
+	}
+
+	// Ctrl-] should also enter normal mode.
+	if r, ok := v.filter(29); ok || r != 0 {
+		t.Fatalf("ctrl-] got (%q,%v), want (0,false)", r, ok)
+	}
+	if r, ok := v.filter('h'); !ok || r != readline.CharBackward {
+		t.Fatalf("normal mode after ctrl-] got (%q,%v), want (CharBackward,true)", r, ok)
 	}
 }
 

@@ -53,6 +53,15 @@ ge import file.txt backup/
 ge import file.txt backup/ force
 ```
 
+In interactive mode, empty `Enter` opens the fuzzy picker with direct action keys:
+- `Enter` select
+- `Ctrl-T` cat
+- `Ctrl-Y` paste
+- `Ctrl-O` open
+- `Ctrl-E` edit
+
+The picker preview remains metadata-only for safety (no decrypted secret preview).
+
 ### Dynamic Entry Completion
 
 For better security, entry completion only works when the `PIN` environment variable is set:

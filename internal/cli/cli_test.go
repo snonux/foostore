@@ -364,6 +364,41 @@ func TestMakeActionFn_nil(t *testing.T) {
 	}
 }
 
+// ---- pickerActionArgv -------------------------------------------------------
+
+// TestPickerActionArgv verifies the direct mapping from picker action keys to
+// CLI argv commands used by interactive empty-line fzf selection.
+func TestPickerActionArgv(t *testing.T) {
+	desc := "docs/secret.txt"
+
+	cases := []struct {
+		name   string
+		action store.PickerAction
+		want   []string
+	}{
+		{name: "select", action: store.PickerSelect, want: nil},
+		{name: "cat", action: store.PickerCat, want: []string{"cat", desc}},
+		{name: "paste", action: store.PickerPaste, want: []string{"paste", desc}},
+		{name: "open", action: store.PickerOpen, want: []string{"open", desc}},
+		{name: "edit", action: store.PickerEdit, want: []string{"edit", desc}},
+		{name: "unknown", action: store.PickerAction("weird"), want: nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pickerActionArgv(tc.action, desc)
+			if len(got) != len(tc.want) {
+				t.Fatalf("pickerActionArgv(%q) len = %d; want %d (%v)", tc.action, len(got), len(tc.want), got)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("pickerActionArgv(%q)[%d] = %q; want %q", tc.action, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 // ---- remaining dispatchSearch branches --------------------------------------
 
 // TestDispatch_searchActions exercises all SearchActions entries on an empty

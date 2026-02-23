@@ -1,4 +1,4 @@
-bin/
+/foostore
 *.test
 coverage.out
 coverage.html

@@ -156,6 +156,7 @@ func (c *CLI) run(ctx context.Context, argv []string) int {
 // c.lastResult is updated by dispatch and accessible between iterations.
 func (c *CLI) shellLoop(ctx context.Context) int {
 	ec := 0
+	logMsg("Interactive mode (vi keys): Ctrl-] for normal mode, i for insert | Enter fuzzy picker | ctrl-t/y/o/e (or alt-t/y/o/e) in picker")
 
 	for {
 		line, err := c.sh.ReadLine(ctx)
@@ -170,12 +171,16 @@ func (c *CLI) shellLoop(ctx context.Context) int {
 
 		argv := strings.Fields(line)
 		if len(argv) == 0 {
-			// Empty input — run fzf picker just as the Ruby nil branch does.
-			result, fzfErr := c.st.Fzf(ctx)
+			// Empty input — run fzf picker.
+			result, fzfErr := c.st.FzfInteractive(ctx)
 			if fzfErr != nil {
 				warn(fzfErr.Error())
-			} else if result != "" {
-				c.lastResult = result
+				continue
+			}
+			if result.Description != "" {
+				c.lastResult = result.Description
+				logMsg(fmt.Sprintf("Picked: %s", result.Description))
+				ec = c.dispatchPickerAction(ctx, result)
 			}
 			continue
 		}
@@ -196,6 +201,29 @@ func (c *CLI) shellLoop(ctx context.Context) int {
 	}
 
 	return ec
+}
+
+func pickerActionArgv(action store.PickerAction, description string) []string {
+	switch action {
+	case store.PickerCat:
+		return []string{"cat", description}
+	case store.PickerPaste:
+		return []string{"paste", description}
+	case store.PickerOpen:
+		return []string{"open", description}
+	case store.PickerEdit:
+		return []string{"edit", description}
+	default:
+		return nil
+	}
+}
+
+func (c *CLI) dispatchPickerAction(ctx context.Context, result store.PickerResult) int {
+	argv := pickerActionArgv(result.Action, result.Description)
+	if len(argv) == 0 {
+		return 0
+	}
+	return c.dispatch(ctx, argv)
 }
 
 // dispatch routes a parsed argv slice to the appropriate handler.

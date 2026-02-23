@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	binary     = "./bin/foostore"
+	binary     = "./foostore"
 	binaryName = "foostore"
 	mainPkg    = "./cmd/foostore"
 )
@@ -24,10 +24,11 @@ const (
 // Default builds the binary so that a bare `mage` invocation is equivalent to `mage build`.
 func Default() { mg.Deps(Build) }
 
-// Build compiles the binary to ./bin/foostore.
+// Build compiles the binary to ./foostore.
 func Build() error {
-	mg.Deps(createBinDir)
 	fmt.Println("Building", binary)
+	// Remove legacy output path from older builds to avoid confusion.
+	_ = os.Remove("./bin/foostore")
 	return sh.RunV("go", "build", "-o", binary, mainPkg)
 }
 
@@ -87,13 +88,12 @@ func Uninstall() error {
 	return nil
 }
 
-// Clean removes the ./bin directory.
+// Clean removes the local build artifact.
 func Clean() error {
-	fmt.Println("Cleaning", "./bin")
-	return os.RemoveAll("./bin")
-}
-
-// createBinDir ensures ./bin exists before the build step writes the binary.
-func createBinDir() error {
-	return os.MkdirAll("./bin", 0o755)
+	fmt.Println("Cleaning", binary)
+	if err := os.Remove(binary); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	_ = os.Remove("./bin/foostore")
+	return nil
 }

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"codeberg.org/snonux/foostore/internal/config"
@@ -36,6 +37,24 @@ const (
 	ActionOpen                     // export then open with OS viewer
 	ActionEdit                     // export, edit in external editor, reimport
 )
+
+// PickerAction describes the action requested from the interactive fzf picker.
+type PickerAction string
+
+const (
+	PickerSelect PickerAction = "select"
+	PickerCat    PickerAction = "cat"
+	PickerPaste  PickerAction = "paste"
+	PickerOpen   PickerAction = "open"
+	PickerEdit   PickerAction = "edit"
+)
+
+// PickerResult is the selected description plus the desired action from fzf.
+// Description is empty when the picker was cancelled.
+type PickerResult struct {
+	Description string
+	Action      PickerAction
+}
 
 // Store provides all secret-store operations.
 // regexCache avoids recompiling the same search-term regexp on every WalkIndexes call.
@@ -217,50 +236,193 @@ func (s *Store) actionExport(ctx context.Context, idx *Index, fullPath bool) err
 	return d.Export(ctx, s.cfg.ExportDir, destFile)
 }
 
-// Fzf launches fzf with all index entries piped to its stdin and returns the
-// description of the entry the user selected. All entries are collected first
-// so that cipher initialisation happens before the pipe is opened (matching
-// the Ruby note: "Need to read an index first before opening the pipe to
-// initialize the encryption PIN").
-// Returns ("", nil) when fzf is not installed or the user presses Escape.
-func (s *Store) Fzf(ctx context.Context) (string, error) {
-	// Collect all entries before opening the fzf pipe so the cipher is ready.
-	var entries []string
-	if err := s.WalkIndexes(ctx, "", func(idx *Index) error {
-		entries = append(entries, idx.String())
-		return nil
-	}); err != nil {
-		return "", err
-	}
-
-	if len(entries) == 0 {
-		return "", nil
-	}
-
-	return runFzf(ctx, entries)
+type pickerEntry struct {
+	rowID       int
+	description string
+	kind        string
+	hashSuffix  string
 }
 
-// runFzf pipes entries to fzf and returns the description of the selected line.
-// Returns ("", nil) if fzf exits with a non-zero status (user cancelled).
-func runFzf(ctx context.Context, entries []string) (string, error) {
-	cmd := exec.CommandContext(ctx, "fzf")
-	cmd.Stdin = strings.NewReader(strings.Join(entries, ""))
+// Fzf launches fzf and returns only the selected description for compatibility
+// with callers that do not care about picker action keys.
+func (s *Store) Fzf(ctx context.Context) (string, error) {
+	result, err := s.FzfInteractive(ctx)
+	if err != nil {
+		return "", err
+	}
+	return result.Description, nil
+}
+
+// FzfInteractive launches fzf with helper bars, preview metadata, and action
+// key bindings, then returns both the selected description and action.
+func (s *Store) FzfInteractive(ctx context.Context) (PickerResult, error) {
+	var indexes IndexSlice
+	if err := s.WalkIndexes(ctx, "", func(idx *Index) error {
+		indexes = append(indexes, idx)
+		return nil
+	}); err != nil {
+		return PickerResult{}, err
+	}
+	if len(indexes) == 0 {
+		return PickerResult{}, nil
+	}
+
+	sort.Sort(indexes)
+	entries := make([]pickerEntry, 0, len(indexes))
+	for i, idx := range indexes {
+		kind := "TEXT"
+		if idx.IsBinary() {
+			kind = "BINARY"
+		}
+		hashSuffix := ""
+		if len(idx.Hash) >= 63 {
+			hashSuffix = idx.Hash[53:63]
+		}
+		entries = append(entries, pickerEntry{
+			rowID:       i + 1,
+			description: idx.Description,
+			kind:        kind,
+			hashSuffix:  hashSuffix,
+		})
+	}
+
+	return runFzfInteractive(ctx, entries)
+}
+
+func runFzfInteractive(ctx context.Context, entries []pickerEntry) (PickerResult, error) {
+	if len(entries) == 0 {
+		return PickerResult{}, nil
+	}
+	if _, err := exec.LookPath("fzf"); err != nil {
+		return PickerResult{}, fmt.Errorf("fzf not found in PATH")
+	}
+
+	input, idToDescription := buildFzfInput(entries)
+
+	cmd := exec.CommandContext(ctx, "fzf", buildFzfArgs(len(entries))...)
+	cmd.Stdin = strings.NewReader(input)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		// Any non-zero exit from fzf (e.g., 130 for Escape, 1 for no match)
-		// is treated as no selection — the caller receives ("", nil).
-		return "", nil
+		// Any non-zero exit from fzf (e.g., Escape/no match) is treated as cancel.
+		return PickerResult{}, nil
 	}
 
-	line := strings.TrimRight(out.String(), "\n")
-	if line == "" {
-		return "", nil
+	return parsePickerResult(out.String(), idToDescription), nil
+}
+
+func buildFzfInput(entries []pickerEntry) (string, map[string]string) {
+	var b strings.Builder
+	idToDescription := make(map[string]string, len(entries))
+	for _, e := range entries {
+		id := strconv.Itoa(e.rowID)
+		idToDescription[id] = e.description
+		fmt.Fprintf(
+			&b,
+			"%s\t%s\t%s\t%s\n",
+			id,
+			sanitizePickerField(e.description),
+			sanitizePickerField(e.kind),
+			sanitizePickerField(e.hashSuffix),
+		)
 	}
-	// The format is "<description>; (BINARY) ...<hashSuffix>\n" — take the part before ";".
-	return strings.TrimSpace(strings.SplitN(line, ";", 2)[0]), nil
+	return b.String(), idToDescription
+}
+
+func buildFzfArgs(entryCount int) []string {
+	header := "enter select | ctrl-t/alt-t cat | ctrl-y/alt-y paste | ctrl-o/alt-o open | ctrl-e/alt-e edit | esc cancel"
+	status := fmt.Sprintf("foostore interactive picker | %d entries | metadata preview only", entryCount)
+	args := []string{
+		"--height=80%",
+		"--layout=reverse",
+		"--border",
+		"--ansi",
+		"--delimiter=\t",
+		"--with-nth=2,3,4",
+		"--prompt=secret> ",
+		"--expect=enter,ctrl-t,ctrl-y,ctrl-o,ctrl-e,alt-t,alt-y,alt-o,alt-e",
+		"--bind=ctrl-t:ignore,ctrl-y:ignore,ctrl-o:ignore,ctrl-e:ignore,alt-t:ignore,alt-y:ignore,alt-o:ignore,alt-e:ignore",
+		"--header=" + header + "\n" + status,
+		"--preview-window=down,6,wrap,border-top",
+		"--preview=printf 'entry: %s\\nkind: %s\\nhash suffix: %s\\n' {2} {3} {4}",
+		"--color=" + pickerColorTheme(os.Getenv("FOOSTORE_TUI_THEME")),
+	}
+	if extra := strings.TrimSpace(os.Getenv("FOOSTORE_FZF_OPTS")); extra != "" {
+		args = append(args, strings.Fields(extra)...)
+	}
+	return args
+}
+
+func pickerColorTheme(theme string) string {
+	switch strings.ToLower(strings.TrimSpace(theme)) {
+	case "", "bold":
+		return "fg:#f8fafc,bg:#0b1220,hl:#f59e0b,fg+:#ffffff,bg+:#1d4ed8,hl+:#fde047,info:#22d3ee,prompt:#f43f5e,pointer:#10b981,marker:#a78bfa,spinner:#fb7185,header:#38bdf8,border:#334155,separator:#0ea5e9,query:#e2e8f0,label:#f472b6"
+	case "clean":
+		return "fg:#e5e7eb,bg:#111827,hl:#93c5fd,fg+:#f9fafb,bg+:#1f2937,hl+:#93c5fd,info:#a7f3d0,prompt:#fbbf24,pointer:#34d399,marker:#34d399,spinner:#fbbf24,header:#a7f3d0,border:#374151"
+	case "neon":
+		return "fg:#d1fae5,bg:#020617,hl:#f0abfc,fg+:#ffffff,bg+:#0f172a,hl+:#f9a8d4,info:#67e8f9,prompt:#22d3ee,pointer:#22c55e,marker:#f472b6,spinner:#a78bfa,header:#38bdf8,border:#1d4ed8,separator:#22d3ee,query:#bbf7d0,label:#f0abfc"
+	case "mono":
+		return "fg:#e5e5e5,bg:#111111,hl:#ffffff,fg+:#ffffff,bg+:#222222,hl+:#ffffff,info:#d4d4d4,prompt:#ffffff,pointer:#ffffff,marker:#ffffff,spinner:#ffffff,header:#d4d4d4,border:#444444"
+	default:
+		return pickerColorTheme("bold")
+	}
+}
+
+func sanitizePickerField(s string) string {
+	s = strings.ReplaceAll(s, "\t", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.TrimSpace(s)
+}
+
+func parsePickerResult(output string, idToDescription map[string]string) PickerResult {
+	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+	if len(lines) < 2 {
+		return PickerResult{}
+	}
+
+	action, ok := parsePickerAction(lines[0])
+	if !ok {
+		return PickerResult{}
+	}
+
+	row := strings.TrimSpace(lines[1])
+	if row == "" {
+		return PickerResult{}
+	}
+
+	id := row
+	if parts := strings.SplitN(row, "\t", 2); len(parts) > 0 {
+		id = strings.TrimSpace(parts[0])
+	}
+
+	description, ok := idToDescription[id]
+	if !ok || description == "" {
+		return PickerResult{}
+	}
+
+	return PickerResult{
+		Description: description,
+		Action:      action,
+	}
+}
+
+func parsePickerAction(keyLine string) (PickerAction, bool) {
+	switch strings.TrimSpace(keyLine) {
+	case "", "enter":
+		return PickerSelect, true
+	case "ctrl-t", "alt-t":
+		return PickerCat, true
+	case "ctrl-y", "alt-y":
+		return PickerPaste, true
+	case "ctrl-o", "alt-o":
+		return PickerOpen, true
+	case "ctrl-e", "alt-e":
+		return PickerEdit, true
+	default:
+		return "", false
+	}
 }
 
 // Add stores a new secret with the given description and plaintext data.

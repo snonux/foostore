@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Building and running
 
 ```bash
-mage          # build (produces ./bin/foostore)
+mage          # build (produces ./foostore)
 mage install  # install to $GOPATH/bin (default ~/go/bin)
 mage test     # run all tests
 mage vet      # run go vet
@@ -18,7 +18,7 @@ mage vet      # run go vet
 Or run directly after building:
 
 ```bash
-./bin/foostore [command] [args]
+./foostore [command] [args]
 ```
 
 ## Testing

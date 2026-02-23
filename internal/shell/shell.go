@@ -5,6 +5,7 @@
 package shell
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -18,6 +19,74 @@ import (
 // Shell manages an interactive readline loop with vi mode and tab completion.
 type Shell struct {
 	rl *readline.Instance
+}
+
+func shellPrompt() string {
+	if os.Getenv("NO_COLOR") != "" {
+		return "% "
+	}
+	// Bright cyan prompt marker for better visibility.
+	return "\x1b[1;96m%\x1b[0m "
+}
+
+// viInputFilter provides a small vi-style modal key layer for readline.
+// It is used as a reliability fallback because VimMode handling can vary
+// by terminal; this keeps navigation deterministic.
+type viInputFilter struct {
+	normalMode bool
+}
+
+func newVIInputFilter() *viInputFilter {
+	// Start in insert mode to keep command entry ergonomic.
+	return &viInputFilter{normalMode: false}
+}
+
+// filter maps typed runes into readline control runes.
+// Returns (mappedRune, true) to pass into readline, or (_, false) to swallow.
+func (v *viInputFilter) filter(r rune) (rune, bool) {
+	switch r {
+	case readline.CharEnter, readline.CharCtrlJ:
+		// Enter submits the line and returns to insert mode for next prompt.
+		v.normalMode = false
+		return r, true
+	case readline.CharEsc, 29: // Esc or Ctrl-]
+		v.normalMode = true
+		return 0, false
+	}
+
+	if !v.normalMode {
+		return r, true
+	}
+
+	switch r {
+	case 'i':
+		v.normalMode = false
+		return 0, false
+	case 'a':
+		v.normalMode = false
+		return readline.CharForward, true
+	case 'h':
+		return readline.CharBackward, true
+	case 'j':
+		return readline.CharNext, true
+	case 'k':
+		return readline.CharPrev, true
+	case 'l':
+		return readline.CharForward, true
+	case 'w', 'W':
+		return readline.MetaForward, true
+	case 'b', 'B':
+		return readline.MetaBackward, true
+	case '0', '^':
+		return readline.CharLineStart, true
+	case '$':
+		return readline.CharLineEnd, true
+	case 'x':
+		return readline.MetaDeleteKey, true
+	default:
+		// In normal mode, unknown keys should not insert text.
+		return readline.CharBell, true
+	}
 }
 
 // prefixCompleter implements readline.AutoCompleter by delegating to a
@@ -63,11 +132,15 @@ func (p *prefixCompleter) Do(line []rune, pos int) (newLine [][]rune, length int
 //   - tab completion via completionFn
 //   - manual history saving so we can deduplicate entries ourselves
 func New(completionFn func(prefix string) []string) (*Shell, error) {
+	viFilter := newVIInputFilter()
 	cfg := &readline.Config{
-		Prompt:       "% ",
-		VimMode:      true,
+		Prompt:       shellPrompt(),
+		VimMode:      false,
 		HistoryLimit: 500,
 		AutoComplete: &prefixCompleter{fn: completionFn},
+		FuncFilterInputRune: func(r rune) (rune, bool) {
+			return viFilter.filter(r)
+		},
 		// Disable automatic history saving so ReadLine can deduplicate
 		// entries before committing them, matching the Ruby behaviour:
 		//   Readline::HISTORY.pop if argv.empty? ||
@@ -141,17 +214,48 @@ func (s *Shell) ReadPassword(prompt string) (string, error) {
 	return string(bytes), nil
 }
 
-// ReadPassword prints prompt then reads a password from the terminal without
-// echoing characters.  It uses golang.org/x/term for reliable cross-platform
-// masked input, bypassing the readline library which does not always display
-// the prompt correctly before the process is fully interactive.
+// ReadPassword prints prompt then reads a password from the terminal using
+// readline in Vim mode with masked visual feedback ("*").
+//
+// For non-interactive input (stdin is not a terminal), it falls back to
+// reading a single line from stdin.
 func ReadPassword(prompt string) (string, error) {
-	fmt.Print(prompt)
-	defer fmt.Println() // move to next line after the user presses Enter
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		fmt.Print(prompt)
+		defer fmt.Println() // move to next line after input is complete
 
-	b, err := term.ReadPassword(int(os.Stdin.Fd()))
+		r := bufio.NewReader(os.Stdin)
+		line, err := r.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return "", err
+		}
+		return strings.TrimRight(line, "\r\n"), nil
+	}
+
+	viFilter := newVIInputFilter()
+	rl, err := readline.NewFromConfig(&readline.Config{
+		FuncFilterInputRune: func(r rune) (rune, bool) {
+			return viFilter.filter(r)
+		},
+		Prompt:                 prompt,
+		VimMode:                false,
+		EnableMask:             true,
+		MaskRune:               '*',
+		HistoryFile:            "",
+		DisableAutoSaveHistory: true,
+	})
 	if err != nil {
 		return "", err
 	}
-	return string(b), nil
+	defer rl.Close()
+
+	line, err := rl.Readline()
+	if err != nil {
+		if err == readline.ErrInterrupt {
+			return "", fmt.Errorf("interrupted")
+		}
+		return "", err
+	}
+	return strings.TrimRight(line, "\r\n"), nil
 }

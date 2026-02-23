@@ -57,3 +57,28 @@ set -e PIN           # clear when done
 ```
 
 See `FISH_INTEGRATION.md` for more details.
+
+## Interactive Picker UX
+
+In interactive shell mode (`foostore` with no arguments), pressing `Enter` on an empty line opens an enhanced fuzzy picker.
+
+- `Enter`: select entry (updates `last`)
+- `Ctrl-T`: `cat` selected entry
+- `Ctrl-Y`: `paste` selected entry
+- `Ctrl-O`: `open` selected entry
+- `Ctrl-E`: `edit` selected entry
+- `Esc`: cancel picker
+
+The preview is metadata-only (description/type/hash suffix). Decrypted secret content is not shown in the picker preview.
+
+Optional picker customization:
+
+```bash
+# presets: bold (default), clean, neon, mono
+export FOOSTORE_TUI_THEME=clean
+
+# append raw extra fzf options
+export FOOSTORE_FZF_OPTS="--cycle --no-mouse"
+```
+
+PIN entry uses masked feedback (`*`) and vi-style line editing.
