@@ -8,6 +8,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -68,6 +69,21 @@ func testCLI(t *testing.T) (*CLI, *config.Config) {
 		clip: clipboard.New("", ""),
 		sh:   sh,
 	}, cfg
+}
+
+func initGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	cmds := [][]string{
+		{"git", "init", dir},
+		{"git", "-C", dir, "config", "user.email", "test@example.com"},
+		{"git", "-C", dir, "config", "user.name", "Test"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
 }
 
 // captureStdout redirects os.Stdout to a pipe, calls fn, then returns what was
@@ -311,6 +327,104 @@ func TestDispatch_unknownCommand(t *testing.T) {
 	if ec != 0 {
 		t.Errorf("dispatch(unknown) = %d; want 0", ec)
 	}
+}
+
+func TestDispatch_gitSimpleCommands(t *testing.T) {
+	c, cfg := testCLI(t)
+	initGitRepo(t, cfg.DataDir)
+
+	ctx := context.Background()
+	for _, cmd := range []string{"status", "reset", "sync"} {
+		t.Run(cmd, func(t *testing.T) {
+			_ = captureStdout(func() {
+				_ = captureStderr(func() {
+					ec := c.dispatch(ctx, []string{cmd})
+					if ec != 0 {
+						t.Errorf("dispatch(%q) = %d; want 0", cmd, ec)
+					}
+				})
+			})
+		})
+	}
+}
+
+func TestDispatch_commitNoChanges(t *testing.T) {
+	c, cfg := testCLI(t)
+	initGitRepo(t, cfg.DataDir)
+
+	ec := c.dispatch(context.Background(), []string{"commit"})
+	if ec != 1 {
+		t.Errorf("dispatch(commit) = %d; want 1 when nothing to commit", ec)
+	}
+}
+
+func TestDispatch_fullCommitNoChanges(t *testing.T) {
+	c, cfg := testCLI(t)
+	initGitRepo(t, cfg.DataDir)
+
+	ec := c.dispatch(context.Background(), []string{"fullcommit"})
+	if ec != 1 {
+		t.Errorf("dispatch(fullcommit) = %d; want 1 when commit step fails", ec)
+	}
+}
+
+func TestDispatchSearch_usesLastResultFallback(t *testing.T) {
+	c, cfg := testCLI(t)
+	initGitRepo(t, cfg.DataDir)
+
+	ctx := context.Background()
+	if err := c.st.Add(ctx, "fallback/entry", "secret"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	c.lastResult = "fallback/entry"
+
+	out := captureStdout(func() {
+		ec := c.dispatch(ctx, []string{"search"})
+		if ec != 0 {
+			t.Fatalf("dispatch(search with fallback) = %d; want 0", ec)
+		}
+	})
+	if !strings.Contains(out, "fallback/entry") {
+		t.Fatalf("expected fallback search output to contain entry, got %q", out)
+	}
+	if c.lastResult != "fallback/entry" {
+		t.Fatalf("lastResult = %q; want fallback/entry", c.lastResult)
+	}
+}
+
+func TestDispatchPickerAction(t *testing.T) {
+	c, cfg := testCLI(t)
+	initGitRepo(t, cfg.DataDir)
+
+	ctx := context.Background()
+	if err := c.st.Add(ctx, "picker/entry.txt", "picker content"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	t.Run("select is no-op", func(t *testing.T) {
+		ec := c.dispatchPickerAction(ctx, store.PickerResult{
+			Description: "picker/entry.txt",
+			Action:      store.PickerSelect,
+		})
+		if ec != 0 {
+			t.Fatalf("dispatchPickerAction(select) = %d; want 0", ec)
+		}
+	})
+
+	t.Run("cat routes through dispatch", func(t *testing.T) {
+		out := captureStdout(func() {
+			ec := c.dispatchPickerAction(ctx, store.PickerResult{
+				Description: "picker/entry.txt",
+				Action:      store.PickerCat,
+			})
+			if ec != 0 {
+				t.Fatalf("dispatchPickerAction(cat) = %d; want 0", ec)
+			}
+		})
+		if !strings.Contains(out, "picker/entry.txt") {
+			t.Fatalf("picker cat output missing description, got %q", out)
+		}
+	})
 }
 
 // ---- readPIN ----------------------------------------------------------------
