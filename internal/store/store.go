@@ -555,7 +555,7 @@ func (s *Store) ShredAllExported(ctx context.Context) error {
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
-		if err := shredFile(ctx, entry); err != nil {
+		if err := ShredFile(ctx, entry); err != nil {
 			// Record the error but keep shredding — security demands best-effort
 			// destruction of all exported secrets even if one fails.
 			lastErr = err
@@ -564,9 +564,9 @@ func (s *Store) ShredAllExported(ctx context.Context) error {
 	return lastErr
 }
 
-// shredFile destroys a single file using shred(1) if available, or rm -Pfv.
+// ShredFile destroys a single file using shred(1) if available, or rm -Pfv.
 // This mirrors Ruby's Geheim#shred_file method.
-func shredFile(ctx context.Context, filePath string) error {
+func ShredFile(ctx context.Context, filePath string) error {
 	if _, err := exec.LookPath("shred"); err == nil {
 		cmd := exec.CommandContext(ctx, "shred", "-vu", filePath)
 		cmd.Stdout = io.Discard

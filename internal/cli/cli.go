@@ -565,7 +565,7 @@ func (c *CLI) makeActionFn(ctx context.Context, action store.Action) func(contex
 			}
 			// Shred the exported file immediately after opening — mirrors Ruby's
 			// `shred_file(file: open_exported(...), delay: 0)` call.
-			return shredFile(ctx, path)
+			return store.ShredFile(ctx, path)
 		}
 
 	case store.ActionEdit:
@@ -663,21 +663,6 @@ func externalEdit(ctx context.Context, exportDir, editCmd, file string) error {
 		return fmt.Errorf("editing %q with %q: %w", fullPath, editCmd, err)
 	}
 	return nil
-}
-
-// shredFile destroys a single file using shred(1) if available, or rm -Pfv.
-// Used after ActionOpen to ensure exported secrets do not linger on disk.
-func shredFile(ctx context.Context, path string) error {
-	if _, err := exec.LookPath("shred"); err == nil {
-		cmd := exec.CommandContext(ctx, "shred", "-vu", path)
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
-		return cmd.Run()
-	}
-	cmd := exec.CommandContext(ctx, "rm", "-Pfv", path)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	return cmd.Run()
 }
 
 // printHelp prints a brief usage summary, mirroring the Ruby CLI#help output.

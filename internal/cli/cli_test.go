@@ -134,7 +134,7 @@ func TestPrintHelp(t *testing.T) {
 	}
 }
 
-// TestShredFileCli verifies that shredFile removes a temporary file.
+// TestShredFileCli verifies that store.ShredFile removes a temporary file.
 // It uses a temp file so no live data is affected.
 func TestShredFileCli(t *testing.T) {
 	dir := t.TempDir()
@@ -144,12 +144,12 @@ func TestShredFileCli(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	if err := shredFile(ctx, target); err != nil {
-		t.Fatalf("shredFile: %v", err)
+	if err := store.ShredFile(ctx, target); err != nil {
+		t.Fatalf("ShredFile: %v", err)
 	}
 
 	if _, err := os.Stat(target); err == nil {
-		t.Errorf("file %q still exists after shredFile", target)
+		t.Errorf("file %q still exists after ShredFile", target)
 	}
 }
 
