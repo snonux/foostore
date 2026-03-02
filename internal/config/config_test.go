@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -60,6 +61,89 @@ func TestExpandTilde(t *testing.T) {
 			got := expandTilde(tc.input)
 			if got != tc.want {
 				t.Errorf("expandTilde(%q) = %q; want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveHomeDirFrom(t *testing.T) {
+	lookupErr := errors.New("lookup failed")
+
+	cases := []struct {
+		name            string
+		userHome        string
+		userErr         error
+		envHome         string
+		tempDir         string
+		wantHome        string
+		wantErrContains string
+	}{
+		{
+			name:     "user home success",
+			userHome: "/users/alice",
+			tempDir:  "/tmp",
+			wantHome: "/users/alice",
+		},
+		{
+			name:            "falls back to absolute HOME when user lookup fails",
+			userErr:         lookupErr,
+			envHome:         "/env/home",
+			tempDir:         "/tmp",
+			wantHome:        "/env/home",
+			wantErrContains: "using HOME",
+		},
+		{
+			name:            "falls back to absolute HOME when user lookup is empty",
+			envHome:         "/env/home",
+			tempDir:         "/tmp",
+			wantHome:        "/env/home",
+			wantErrContains: "returned empty home",
+		},
+		{
+			name:            "relative HOME falls back to temp-based path",
+			userErr:         lookupErr,
+			envHome:         "relative/home",
+			tempDir:         "/tmp/runtime",
+			wantHome:        "/tmp/runtime/foostore-home",
+			wantErrContains: "HOME is not absolute",
+		},
+		{
+			name:            "missing HOME falls back to temp-based path",
+			userErr:         lookupErr,
+			tempDir:         "/tmp/runtime",
+			wantHome:        "/tmp/runtime/foostore-home",
+			wantErrContains: "HOME is unavailable",
+		},
+		{
+			name:            "empty user home and missing HOME falls back to temp-based path",
+			tempDir:         "/tmp/runtime",
+			wantHome:        "/tmp/runtime/foostore-home",
+			wantErrContains: "returned empty home and HOME is unavailable",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotHome, err := resolveHomeDirFrom(
+				func() (string, error) { return tc.userHome, tc.userErr },
+				tc.envHome,
+				tc.tempDir,
+			)
+			if gotHome != tc.wantHome {
+				t.Fatalf("home = %q; want %q", gotHome, tc.wantHome)
+			}
+
+			if tc.wantErrContains == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q; got nil", tc.wantErrContains)
+			}
+			if !strings.Contains(err.Error(), tc.wantErrContains) {
+				t.Fatalf("error = %q; want substring %q", err.Error(), tc.wantErrContains)
 			}
 		})
 	}
