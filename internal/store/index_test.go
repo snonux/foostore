@@ -136,6 +136,23 @@ func TestLoadIndexCorrupted(t *testing.T) {
 	}
 }
 
+func TestLoadIndexMissingEncryptor(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	indexPath := filepath.Join(dir, "entry.index")
+	if err := os.WriteFile(indexPath, []byte("ciphertext"), 0o600); err != nil {
+		t.Fatalf("writing index file: %v", err)
+	}
+
+	_, err := loadIndex(ctx, indexPath, dir, nil)
+	if err == nil {
+		t.Fatal("loadIndex with nil encryptor: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing encryptor") {
+		t.Fatalf("loadIndex error = %q; want missing encryptor", err.Error())
+	}
+}
+
 // --- TestIndexSort -----------------------------------------------------------
 
 // TestIndexSort verifies that IndexSlice sorts by Description alphabetically

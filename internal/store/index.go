@@ -10,9 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"codeberg.org/snonux/foostore/internal/crypto"
-	"codeberg.org/snonux/foostore/internal/git"
 )
 
 // Index represents a decrypted .index file and its associated .data path.
@@ -28,13 +25,16 @@ type Index struct {
 // loadIndex decrypts an .index file and builds an Index struct.
 // absoluteIndexPath is the full path to the .index file on disk;
 // dataDir is the root of the secret store (used to compute the relative DataFile).
-func loadIndex(ctx context.Context, absoluteIndexPath, dataDir string, c *crypto.Cipher) (*Index, error) {
+func loadIndex(ctx context.Context, absoluteIndexPath, dataDir string, encryptor Encryptor) (*Index, error) {
 	ciphertext, err := os.ReadFile(absoluteIndexPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading index file %q: %w", absoluteIndexPath, err)
 	}
 
-	plain, err := c.Decrypt(ciphertext)
+	if encryptor == nil {
+		return nil, fmt.Errorf("decrypting index file %q: missing encryptor", absoluteIndexPath)
+	}
+	plain, err := encryptor.Decrypt(ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("decrypting index file %q: %w", absoluteIndexPath, err)
 	}
@@ -98,7 +98,7 @@ func (idx *Index) String() string {
 // the file with git. When force is false and IndexPath already exists the write
 // is silently skipped, matching the Ruby CommitFile#commit_content behaviour and
 // keeping the .index in sync with a skipped .data Commit.
-func (idx *Index) CommitIndex(ctx context.Context, c *crypto.Cipher, g *git.Git, force bool) error {
+func (idx *Index) CommitIndex(ctx context.Context, encryptor Encryptor, committer Committer, force bool) error {
 	if !force {
 		if _, err := os.Stat(idx.IndexPath); err == nil {
 			// File already exists; skip without error to keep the index/data pair consistent
@@ -108,7 +108,10 @@ func (idx *Index) CommitIndex(ctx context.Context, c *crypto.Cipher, g *git.Git,
 		}
 	}
 
-	ciphertext, err := c.Encrypt([]byte(idx.Description))
+	if encryptor == nil {
+		return fmt.Errorf("encrypting index %q: missing encryptor", idx.IndexPath)
+	}
+	ciphertext, err := encryptor.Encrypt([]byte(idx.Description))
 	if err != nil {
 		return fmt.Errorf("encrypting index %q: %w", idx.IndexPath, err)
 	}
@@ -117,7 +120,10 @@ func (idx *Index) CommitIndex(ctx context.Context, c *crypto.Cipher, g *git.Git,
 		return fmt.Errorf("writing index file %q: %w", idx.IndexPath, err)
 	}
 
-	if err := g.Add(ctx, idx.IndexPath); err != nil {
+	if committer == nil {
+		return fmt.Errorf("git add index %q: missing committer", idx.IndexPath)
+	}
+	if err := committer.Add(ctx, idx.IndexPath); err != nil {
 		return fmt.Errorf("git add index %q: %w", idx.IndexPath, err)
 	}
 
@@ -125,8 +131,11 @@ func (idx *Index) CommitIndex(ctx context.Context, c *crypto.Cipher, g *git.Git,
 }
 
 // Remove stages the .index file for deletion via git rm.
-func (idx *Index) Remove(ctx context.Context, g *git.Git) error {
-	return g.Remove(ctx, idx.IndexPath)
+func (idx *Index) Remove(ctx context.Context, committer Committer) error {
+	if committer == nil {
+		return fmt.Errorf("git remove index %q: missing committer", idx.IndexPath)
+	}
+	return committer.Remove(ctx, idx.IndexPath)
 }
 
 // ---- sort.Interface for []*Index --------------------------------------------

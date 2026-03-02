@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"codeberg.org/snonux/foostore/internal/crypto"
@@ -238,5 +239,40 @@ func TestDataCommitSkipsExisting(t *testing.T) {
 	got, _ := os.ReadFile(dataPath)
 	if string(got) != string(sentinel) {
 		t.Errorf("file was overwritten: got %q; want %q", got, sentinel)
+	}
+}
+
+func TestDataCommitMissingEncryptor(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	d := &Data{
+		Content:  []byte("content"),
+		DataPath: filepath.Join(dir, "entry.data"),
+	}
+
+	err := d.Commit(ctx, nil, nil, true)
+	if err == nil {
+		t.Fatal("Commit with nil encryptor: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing encryptor") {
+		t.Fatalf("Commit error = %q; want missing encryptor", err.Error())
+	}
+}
+
+func TestDataCommitMissingCommitter(t *testing.T) {
+	ctx := context.Background()
+	c := newTestCipher(t)
+	dir := t.TempDir()
+	d := &Data{
+		Content:  []byte("content"),
+		DataPath: filepath.Join(dir, "entry.data"),
+	}
+
+	err := d.Commit(ctx, c, nil, true)
+	if err == nil {
+		t.Fatal("Commit with nil committer: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing committer") {
+		t.Fatalf("Commit error = %q; want missing committer", err.Error())
 	}
 }

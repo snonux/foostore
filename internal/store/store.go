@@ -21,8 +21,6 @@ import (
 	"strings"
 
 	"codeberg.org/snonux/foostore/internal/config"
-	"codeberg.org/snonux/foostore/internal/crypto"
-	"codeberg.org/snonux/foostore/internal/git"
 )
 
 // Action describes what to do with each matching secret during a Search call.
@@ -60,13 +58,13 @@ type PickerResult struct {
 // regexCache avoids recompiling the same search-term regexp on every WalkIndexes call.
 type Store struct {
 	cfg        *config.Config
-	cipher     *crypto.Cipher
-	git        *git.Git
+	cipher     Encryptor
+	git        Committer
 	regexCache map[string]*regexp.Regexp
 }
 
 // New creates a Store, ensuring cfg.DataDir exists on disk.
-func New(cfg *config.Config, cipher *crypto.Cipher, g *git.Git) (*Store, error) {
+func New(cfg *config.Config, cipher Encryptor, g Committer) (*Store, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating data directory %q: %w", cfg.DataDir, err)
 	}

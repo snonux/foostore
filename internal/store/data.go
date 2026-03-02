@@ -8,9 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"codeberg.org/snonux/foostore/internal/crypto"
-	"codeberg.org/snonux/foostore/internal/git"
 )
 
 // Data holds a decrypted secret blob and the paths used to persist it.
@@ -24,13 +21,16 @@ type Data struct {
 
 // loadData decrypts a .data file and returns a Data struct with Content populated.
 // absoluteDataPath must be the full filesystem path to the encrypted .data file.
-func loadData(ctx context.Context, absoluteDataPath string, c *crypto.Cipher) (*Data, error) {
+func loadData(ctx context.Context, absoluteDataPath string, encryptor Encryptor) (*Data, error) {
 	ciphertext, err := os.ReadFile(absoluteDataPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading data file %q: %w", absoluteDataPath, err)
 	}
 
-	plain, err := c.Decrypt(ciphertext)
+	if encryptor == nil {
+		return nil, fmt.Errorf("decrypting data file %q: missing encryptor", absoluteDataPath)
+	}
+	plain, err := encryptor.Decrypt(ciphertext)
 	if err != nil {
 		return nil, fmt.Errorf("decrypting data file %q: %w", absoluteDataPath, err)
 	}
@@ -69,21 +69,21 @@ func (d *Data) Export(ctx context.Context, exportDir, destinationFile string) er
 // ReimportAfterExport reads the (possibly edited) file from ExportedPath back
 // into Content and then commits it. This is used by the edit workflow: export →
 // user edits in external editor → reimport.
-func (d *Data) ReimportAfterExport(ctx context.Context, c *crypto.Cipher, g *git.Git) error {
+func (d *Data) ReimportAfterExport(ctx context.Context, encryptor Encryptor, committer Committer) error {
 	content, err := os.ReadFile(d.ExportedPath)
 	if err != nil {
 		return fmt.Errorf("reading exported file %q: %w", d.ExportedPath, err)
 	}
 
 	d.Content = content
-	return d.Commit(ctx, c, g, true)
+	return d.Commit(ctx, encryptor, committer, true)
 }
 
 // Commit encrypts Content and writes it to DataPath, then stages the file with git.
 // If force is false and the file already exists, the commit is silently skipped
 // (matching the Ruby CommitFile#commit_content behaviour that avoids overwrites
 // without explicit force).
-func (d *Data) Commit(ctx context.Context, c *crypto.Cipher, g *git.Git, force bool) error {
+func (d *Data) Commit(ctx context.Context, encryptor Encryptor, committer Committer, force bool) error {
 	if !force {
 		if _, err := os.Stat(d.DataPath); err == nil {
 			// File already exists; skip without error to preserve existing data.
@@ -96,7 +96,10 @@ func (d *Data) Commit(ctx context.Context, c *crypto.Cipher, g *git.Git, force b
 		return fmt.Errorf("creating data directory for %q: %w", d.DataPath, err)
 	}
 
-	ciphertext, err := c.Encrypt(d.Content)
+	if encryptor == nil {
+		return fmt.Errorf("encrypting data for %q: missing encryptor", d.DataPath)
+	}
+	ciphertext, err := encryptor.Encrypt(d.Content)
 	if err != nil {
 		return fmt.Errorf("encrypting data for %q: %w", d.DataPath, err)
 	}
@@ -105,7 +108,10 @@ func (d *Data) Commit(ctx context.Context, c *crypto.Cipher, g *git.Git, force b
 		return fmt.Errorf("writing data file %q: %w", d.DataPath, err)
 	}
 
-	if err := g.Add(ctx, d.DataPath); err != nil {
+	if committer == nil {
+		return fmt.Errorf("git add data %q: missing committer", d.DataPath)
+	}
+	if err := committer.Add(ctx, d.DataPath); err != nil {
 		return fmt.Errorf("git add data %q: %w", d.DataPath, err)
 	}
 
@@ -113,6 +119,9 @@ func (d *Data) Commit(ctx context.Context, c *crypto.Cipher, g *git.Git, force b
 }
 
 // Remove stages the .data file for deletion via git rm.
-func (d *Data) Remove(ctx context.Context, g *git.Git) error {
-	return g.Remove(ctx, d.DataPath)
+func (d *Data) Remove(ctx context.Context, committer Committer) error {
+	if committer == nil {
+		return fmt.Errorf("git remove data %q: missing committer", d.DataPath)
+	}
+	return committer.Remove(ctx, d.DataPath)
 }
