@@ -375,7 +375,7 @@ func TestRemoveEntry(t *testing.T) {
 // --- TestSearch --------------------------------------------------------------
 
 // TestSearch adds two entries, then calls Search with ActionNone and verifies
-// both descriptions are returned sorted and printed to stdout.
+// both descriptions are returned sorted without store-layer stdout side effects.
 func TestSearch(t *testing.T) {
 	ctx, store, cfg, _, _ := testSetup(t)
 	initGitRepo(t, cfg.DataDir)
@@ -386,7 +386,20 @@ func TestSearch(t *testing.T) {
 		}
 	}
 
-	results, err := store.Search(ctx, "", ActionNone, nil)
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("creating pipe: %v", err)
+	}
+	oldStdout := os.Stdout
+	os.Stdout = w
+
+	results, err := store.Search(ctx, "", ActionNone, nil, nil)
+
+	w.Close()
+	os.Stdout = oldStdout
+	var out strings.Builder
+	io.Copy(&out, r)
+
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -396,6 +409,9 @@ func TestSearch(t *testing.T) {
 	// Search returns results sorted by Description.
 	if results[0].Description != "apple/entry" || results[1].Description != "zebra/entry" {
 		t.Errorf("unexpected sort order: %v, %v", results[0].Description, results[1].Description)
+	}
+	if out.String() != "" {
+		t.Errorf("Search(ActionNone) wrote unexpected stdout: %q", out.String())
 	}
 }
 
@@ -419,7 +435,7 @@ func TestSearchActionCat(t *testing.T) {
 	}
 	os.Stdout = w
 
-	results, err := store.Search(ctx, "note.txt", ActionCat, nil)
+	results, err := store.Search(ctx, "note.txt", ActionCat, nil, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -459,7 +475,7 @@ func TestSearchActionCatBinarySkip(t *testing.T) {
 	oldStdout := os.Stdout
 	os.Stdout = w
 
-	results, searchErr := store.Search(ctx, "photo.jpg", ActionCat, nil)
+	results, searchErr := store.Search(ctx, "photo.jpg", ActionCat, nil, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -519,7 +535,7 @@ func TestSearchActionExport(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	results, err := store.Search(ctx, "report.txt", ActionExport, nil)
+	results, err := store.Search(ctx, "report.txt", ActionExport, nil, nil)
 	if err != nil {
 		t.Fatalf("Search ActionExport: %v", err)
 	}
@@ -759,7 +775,7 @@ func TestSearchActionPathExport(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	results, err := store.Search(ctx, "report.txt", ActionPathExport, nil)
+	results, err := store.Search(ctx, "report.txt", ActionPathExport, nil, nil)
 	if err != nil {
 		t.Fatalf("Search ActionPathExport: %v", err)
 	}
@@ -800,7 +816,7 @@ func TestSearchActionWithCallback(t *testing.T) {
 	}
 
 	// ActionPaste falls through to the default/actionFn branch of applyAction.
-	results, err := store.Search(ctx, "cb/entry.txt", ActionPaste, actionFn)
+	results, err := store.Search(ctx, "cb/entry.txt", ActionPaste, actionFn, nil)
 	if err != nil {
 		t.Fatalf("Search with callback: %v", err)
 	}
@@ -828,7 +844,7 @@ func TestSearchActionNilCallback(t *testing.T) {
 	}
 
 	// nil actionFn: applyAction must return nil without calling anything.
-	_, err := store.Search(ctx, "nil/cb.txt", ActionPaste, nil)
+	_, err := store.Search(ctx, "nil/cb.txt", ActionPaste, nil, nil)
 	if err != nil {
 		t.Fatalf("Search with nil callback: %v", err)
 	}

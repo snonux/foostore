@@ -267,7 +267,7 @@ func (c *CLI) dispatch(ctx context.Context, argv []string) int {
 func (c *CLI) dispatchSimple(ctx context.Context, argv []string, cmd string) (int, string, bool) {
 	switch cmd {
 	case "ls":
-		indexes, err := c.st.Search(ctx, ".", store.ActionNone, nil)
+		indexes, err := c.st.Search(ctx, ".", store.ActionNone, nil, printIndex)
 		if err != nil {
 			warn(err.Error())
 			return 1, "", true
@@ -393,7 +393,7 @@ func (c *CLI) dispatchSearch(ctx context.Context, argv []string, cmd string) (in
 	default:
 		// Unknown command: treat as a search term, mirroring Ruby's else branch.
 		// This allows bare search terms to be typed without prefixing "search".
-		indexes, err := c.st.Search(ctx, cmd, store.ActionNone, nil)
+		indexes, err := c.st.Search(ctx, cmd, store.ActionNone, nil, printIndex)
 		if err != nil {
 			warn(err.Error())
 			return 1, ""
@@ -513,7 +513,7 @@ func (c *CLI) cmdFullCommit(ctx context.Context) int {
 
 // cmdSearchOnly runs a search without any action and returns the result.
 func (c *CLI) cmdSearchOnly(ctx context.Context, term string) (int, string) {
-	indexes, err := c.st.Search(ctx, term, store.ActionNone, nil)
+	indexes, err := c.st.Search(ctx, term, store.ActionNone, nil, printIndex)
 	if err != nil {
 		warn(err.Error())
 		return 1, ""
@@ -526,7 +526,7 @@ func (c *CLI) cmdSearchOnly(ctx context.Context, term string) (int, string) {
 
 // cmdSearchAction runs a search with the given action and optional callback.
 func (c *CLI) cmdSearchAction(ctx context.Context, term string, action store.Action, actionFn func(context.Context, *store.Index, *store.Data) error) (int, string) {
-	indexes, err := c.st.Search(ctx, term, action, actionFn)
+	indexes, err := c.st.Search(ctx, term, action, actionFn, printIndex)
 	if err != nil {
 		warn(err.Error())
 		return 1, ""
@@ -535,6 +535,10 @@ func (c *CLI) cmdSearchAction(ctx context.Context, term string, action store.Act
 		return 0, indexes[0].Description
 	}
 	return 0, ""
+}
+
+func printIndex(idx *store.Index) {
+	fmt.Print(idx.String())
 }
 
 // makeActionFn returns the appropriate callback function for actions that

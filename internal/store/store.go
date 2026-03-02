@@ -155,8 +155,16 @@ func (s *Store) processIndexFile(ctx context.Context, path, searchTerm string, r
 // printed; for ActionExport/ActionPathExport the content is written to ExportDir.
 // Actions requiring external tools (paste, open, edit) are delegated to the
 // optional actionFn callback — pass nil if those actions are not needed.
+// The optional onMatch callback lets callers handle presentation concerns
+// (for example, printing idx.String()) outside the store layer.
 // Returns the sorted list of matching indexes for the caller's use.
-func (s *Store) Search(ctx context.Context, searchTerm string, action Action, actionFn func(context.Context, *Index, *Data) error) ([]*Index, error) {
+func (s *Store) Search(
+	ctx context.Context,
+	searchTerm string,
+	action Action,
+	actionFn func(context.Context, *Index, *Data) error,
+	onMatch func(*Index),
+) ([]*Index, error) {
 	var indexes IndexSlice
 	if err := s.WalkIndexes(ctx, searchTerm, func(idx *Index) error {
 		indexes = append(indexes, idx)
@@ -168,7 +176,9 @@ func (s *Store) Search(ctx context.Context, searchTerm string, action Action, ac
 	sort.Sort(indexes)
 
 	for _, idx := range indexes {
-		fmt.Print(idx.String())
+		if onMatch != nil {
+			onMatch(idx)
+		}
 		if err := s.applyAction(ctx, idx, action, actionFn); err != nil {
 			return indexes, err
 		}
