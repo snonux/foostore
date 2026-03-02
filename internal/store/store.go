@@ -194,7 +194,7 @@ func (s *Store) applyAction(ctx context.Context, idx *Index, action Action, acti
 		// ActionPaste, ActionOpen, ActionEdit — require external tools;
 		// delegate to the caller-supplied callback.
 		if actionFn != nil {
-			d, err := loadData(ctx, filepath.Join(s.cfg.DataDir, idx.DataFile), s.cipher)
+			d, err := loadData(ctx, filepath.Join(s.cfg.DataDir, idx.DataFile), s.cipher, s.git)
 			if err != nil {
 				return err
 			}
@@ -211,7 +211,7 @@ func (s *Store) actionCat(ctx context.Context, idx *Index) error {
 		fmt.Println("Not displaying/pasting binary data!")
 		return nil
 	}
-	d, err := loadData(ctx, filepath.Join(s.cfg.DataDir, idx.DataFile), s.cipher)
+	d, err := loadData(ctx, filepath.Join(s.cfg.DataDir, idx.DataFile), s.cipher, s.git)
 	if err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func (s *Store) actionCat(ctx context.Context, idx *Index) error {
 // When fullPath is true the full description is used as the destination path;
 // when false only the basename is used (matching Ruby's :export vs :pathexport).
 func (s *Store) actionExport(ctx context.Context, idx *Index, fullPath bool) error {
-	d, err := loadData(ctx, filepath.Join(s.cfg.DataDir, idx.DataFile), s.cipher)
+	d, err := loadData(ctx, filepath.Join(s.cfg.DataDir, idx.DataFile), s.cipher, s.git)
 	if err != nil {
 		return err
 	}
@@ -431,7 +431,7 @@ func (s *Store) Add(ctx context.Context, description, data string) error {
 	idx, dataObj := s.buildPair(description, hash)
 	dataObj.Content = []byte(data)
 
-	if err := dataObj.Commit(ctx, s.cipher, s.git, false); err != nil {
+	if err := dataObj.Commit(ctx, false); err != nil {
 		return fmt.Errorf("committing data for %q: %w", description, err)
 	}
 	if err := idx.CommitIndex(ctx, s.cipher, s.git, false); err != nil {
@@ -456,7 +456,7 @@ func (s *Store) Import(ctx context.Context, srcPath, destPath string, force bool
 	idx, dataObj := s.buildPair(destPath, hash)
 	dataObj.Content = content
 
-	if err := dataObj.Commit(ctx, s.cipher, s.git, force); err != nil {
+	if err := dataObj.Commit(ctx, force); err != nil {
 		return fmt.Errorf("committing data for %q: %w", destPath, err)
 	}
 	if err := idx.CommitIndex(ctx, s.cipher, s.git, force); err != nil {
@@ -594,7 +594,9 @@ func (s *Store) buildPair(description, hash string) (*Index, *Data) {
 		Hash:        hashBase,
 	}
 	dataObj := &Data{
-		DataPath: dataPath,
+		DataPath:  dataPath,
+		encryptor: s.cipher,
+		committer: s.git,
 	}
 	return idx, dataObj
 }

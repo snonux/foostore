@@ -62,12 +62,11 @@ func testCLI(t *testing.T) (*CLI, *config.Config) {
 	t.Cleanup(func() { sh.Close() })
 
 	return &CLI{
-		cfg:    cfg,
-		st:     st,
-		g:      g,
-		clip:   clipboard.New("", ""),
-		sh:     sh,
-		cipher: ciph,
+		cfg:  cfg,
+		st:   st,
+		g:    g,
+		clip: clipboard.New("", ""),
+		sh:   sh,
 	}, cfg
 }
 

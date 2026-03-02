@@ -55,7 +55,6 @@ type CLI struct {
 	g          *git.Git
 	clip       *clipboard.Clipboard
 	sh         *shell.Shell
-	cipher     *crypto.Cipher
 	lastResult string // most recent search result description
 }
 
@@ -101,11 +100,10 @@ func newCLI(ctx context.Context) (*CLI, error) {
 	clip := clipboard.New(cfg.GnomeClipboardCmd, cfg.MacOSClipboardCmd)
 
 	c := &CLI{
-		cfg:    &cfg,
-		st:     st,
-		g:      g,
-		clip:   clip,
-		cipher: ciph,
+		cfg:  &cfg,
+		st:   st,
+		g:    g,
+		clip: clip,
 	}
 
 	// Create the shell with a completion function that references the CLI.
@@ -577,7 +575,7 @@ func (c *CLI) makeActionFn(ctx context.Context, action store.Action) func(contex
 			if err := externalEdit(ctx, c.cfg.ExportDir, c.cfg.EditCmd, exportName); err != nil {
 				return err
 			}
-			return d.ReimportAfterExport(ctx, c.cipher, c.g)
+			return d.ReimportAfterExport(ctx)
 		}
 
 	default:

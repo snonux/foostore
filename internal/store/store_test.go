@@ -139,7 +139,7 @@ func TestAddAndSearch(t *testing.T) {
 	}
 
 	dataPath := filepath.Join(cfg.DataDir, idx.DataFile)
-	d, err := loadData(ctx, dataPath, c)
+	d, err := loadData(ctx, dataPath, c, nil)
 	if err != nil {
 		t.Fatalf("loadData: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestImport(t *testing.T) {
 	}
 
 	dataPath := filepath.Join(cfg.DataDir, found[0].DataFile)
-	d, err := loadData(ctx, dataPath, c)
+	d, err := loadData(ctx, dataPath, c, nil)
 	if err != nil {
 		t.Fatalf("loadData: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestExport(t *testing.T) {
 	}
 
 	dataPath := filepath.Join(cfg.DataDir, idx.DataFile)
-	d, err := loadData(ctx, dataPath, c)
+	d, err := loadData(ctx, dataPath, c, nil)
 	if err != nil {
 		t.Fatalf("loadData: %v", err)
 	}
@@ -595,7 +595,7 @@ func TestImportRecursive(t *testing.T) {
 			}())
 			continue
 		}
-		d, err := loadData(ctx, filepath.Join(cfg.DataDir, idx.DataFile), c)
+		d, err := loadData(ctx, filepath.Join(cfg.DataDir, idx.DataFile), c, nil)
 		if err != nil {
 			t.Fatalf("loadData for %q: %v", desc, err)
 		}
@@ -624,7 +624,7 @@ func TestReimportAfterExport(t *testing.T) {
 		t.Fatalf("WalkIndexes: %v", err)
 	}
 
-	d, err := loadData(ctx, filepath.Join(cfg.DataDir, idx.DataFile), c)
+	d, err := loadData(ctx, filepath.Join(cfg.DataDir, idx.DataFile), c, g)
 	if err != nil {
 		t.Fatalf("loadData: %v", err)
 	}
@@ -641,12 +641,12 @@ func TestReimportAfterExport(t *testing.T) {
 	}
 
 	// Reimport overwrites the encrypted .data with the updated content.
-	if err := d.ReimportAfterExport(ctx, c, g); err != nil {
+	if err := d.ReimportAfterExport(ctx); err != nil {
 		t.Fatalf("ReimportAfterExport: %v", err)
 	}
 
 	// Reload from disk and verify the update was persisted.
-	reloaded, err := loadData(ctx, filepath.Join(cfg.DataDir, idx.DataFile), c)
+	reloaded, err := loadData(ctx, filepath.Join(cfg.DataDir, idx.DataFile), c, nil)
 	if err != nil {
 		t.Fatalf("loadData after reimport: %v", err)
 	}
@@ -1029,7 +1029,7 @@ func TestImportForceOverwrite(t *testing.T) {
 	if err := store.WalkIndexes(ctx, "", func(i *Index) error { idx = i; return nil }); err != nil {
 		t.Fatalf("WalkIndexes: %v", err)
 	}
-	d, err := loadData(ctx, filepath.Join(cfg.DataDir, idx.DataFile), c)
+	d, err := loadData(ctx, filepath.Join(cfg.DataDir, idx.DataFile), c, nil)
 	if err != nil {
 		t.Fatalf("loadData: %v", err)
 	}

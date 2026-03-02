@@ -93,7 +93,7 @@ func TestDataCommitAndLoad(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	loaded, err := loadData(ctx, dataPath, c)
+	loaded, err := loadData(ctx, dataPath, c, nil)
 	if err != nil {
 		t.Fatalf("loadData: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestLoadDataMissingFile(t *testing.T) {
 	ctx := context.Background()
 	c := newTestCipher(t)
 
-	_, err := loadData(ctx, "/nonexistent/path/to.data", c)
+	_, err := loadData(ctx, "/nonexistent/path/to.data", c, nil)
 	if err == nil {
 		t.Error("loadData with missing file: expected error, got nil")
 	}
@@ -178,7 +178,7 @@ func TestLoadDataCorrupted(t *testing.T) {
 		t.Fatalf("writing bad file: %v", err)
 	}
 
-	_, err := loadData(ctx, badPath, c)
+	_, err := loadData(ctx, badPath, c, nil)
 	if err == nil {
 		t.Error("loadData with corrupted file: expected error, got nil")
 	}
@@ -221,16 +221,14 @@ func TestDataCommitSkipsExisting(t *testing.T) {
 	}
 
 	d := &Data{
-		Content:  []byte("new content that should NOT overwrite"),
-		DataPath: dataPath,
+		Content:   []byte("new content that should NOT overwrite"),
+		DataPath:  dataPath,
+		encryptor: c,
 	}
 
-	// Commit with force=false must not overwrite; it also tries git.Add which
-	// we can't test without a real repo, so we only check the file is untouched.
-	// Since Commit calls git.Add on success, and that will fail without a repo,
-	// we skip the git.Add path by checking the file is unchanged after the skip.
-	// The function prints a warning and returns nil when force=false and file exists.
-	err := d.Commit(ctx, c, nil, false) // nil git — should not be reached when skipping
+	// Commit with force=false must not overwrite and should return before
+	// encrypting or touching git dependencies.
+	err := d.Commit(ctx, false)
 	if err != nil {
 		t.Errorf("Commit(force=false) with existing file returned error: %v", err)
 	}
@@ -250,7 +248,7 @@ func TestDataCommitMissingEncryptor(t *testing.T) {
 		DataPath: filepath.Join(dir, "entry.data"),
 	}
 
-	err := d.Commit(ctx, nil, nil, true)
+	err := d.Commit(ctx, true)
 	if err == nil {
 		t.Fatal("Commit with nil encryptor: expected error, got nil")
 	}
@@ -264,11 +262,12 @@ func TestDataCommitMissingCommitter(t *testing.T) {
 	c := newTestCipher(t)
 	dir := t.TempDir()
 	d := &Data{
-		Content:  []byte("content"),
-		DataPath: filepath.Join(dir, "entry.data"),
+		Content:   []byte("content"),
+		DataPath:  filepath.Join(dir, "entry.data"),
+		encryptor: c,
 	}
 
-	err := d.Commit(ctx, c, nil, true)
+	err := d.Commit(ctx, true)
 	if err == nil {
 		t.Fatal("Commit with nil committer: expected error, got nil")
 	}
