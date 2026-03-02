@@ -6,7 +6,6 @@ package store
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,10 +16,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"codeberg.org/snonux/foostore/internal/config"
+	"codeberg.org/snonux/foostore/internal/picker"
 )
 
 // Action describes what to do with each matching secret during a Search call.
@@ -244,13 +243,6 @@ func (s *Store) actionExport(ctx context.Context, idx *Index, fullPath bool) err
 	return d.Export(ctx, s.cfg.ExportDir, destFile)
 }
 
-type pickerEntry struct {
-	rowID       int
-	description string
-	kind        string
-	hashSuffix  string
-}
-
 // Fzf launches fzf and returns only the selected description for compatibility
 // with callers that do not care about picker action keys.
 func (s *Store) Fzf(ctx context.Context) (string, error) {
@@ -276,7 +268,7 @@ func (s *Store) FzfInteractive(ctx context.Context) (PickerResult, error) {
 	}
 
 	sort.Sort(indexes)
-	entries := make([]pickerEntry, 0, len(indexes))
+	entries := make([]picker.Entry, 0, len(indexes))
 	for i, idx := range indexes {
 		kind := "TEXT"
 		if idx.IsBinary() {
@@ -286,132 +278,57 @@ func (s *Store) FzfInteractive(ctx context.Context) (PickerResult, error) {
 		if len(idx.Hash) >= 63 {
 			hashSuffix = idx.Hash[53:63]
 		}
-		entries = append(entries, pickerEntry{
-			rowID:       i + 1,
-			description: idx.Description,
-			kind:        kind,
-			hashSuffix:  hashSuffix,
+		entries = append(entries, picker.Entry{
+			RowID:       i + 1,
+			Description: idx.Description,
+			Kind:        kind,
+			HashSuffix:  hashSuffix,
 		})
 	}
 
 	return runFzfInteractive(ctx, entries)
 }
 
-func runFzfInteractive(ctx context.Context, entries []pickerEntry) (PickerResult, error) {
-	if len(entries) == 0 {
-		return PickerResult{}, nil
-	}
-	if _, err := exec.LookPath("fzf"); err != nil {
-		return PickerResult{}, fmt.Errorf("fzf not found in PATH")
+func runFzfInteractive(ctx context.Context, entries []picker.Entry) (PickerResult, error) {
+	selection, err := picker.Run(ctx, entries)
+	if err != nil {
+		return PickerResult{}, err
 	}
 
-	input, idToDescription := buildFzfInput(entries)
-
-	cmd := exec.CommandContext(ctx, "fzf", buildFzfArgs(len(entries))...)
-	cmd.Stdin = strings.NewReader(input)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		// Any non-zero exit from fzf (e.g., Escape/no match) is treated as cancel.
-		return PickerResult{}, nil
-	}
-
-	return parsePickerResult(out.String(), idToDescription), nil
-}
-
-func buildFzfInput(entries []pickerEntry) (string, map[string]string) {
-	var b strings.Builder
-	idToDescription := make(map[string]string, len(entries))
-	for _, e := range entries {
-		id := strconv.Itoa(e.rowID)
-		idToDescription[id] = e.description
-		fmt.Fprintf(
-			&b,
-			"%s\t%s\t%s\t%s\n",
-			id,
-			sanitizePickerField(e.description),
-			sanitizePickerField(e.kind),
-			sanitizePickerField(e.hashSuffix),
-		)
-	}
-	return b.String(), idToDescription
-}
-
-func buildFzfArgs(entryCount int) []string {
-	header := "enter select | ctrl-t/alt-t cat | ctrl-y/alt-y paste | ctrl-o/alt-o open | ctrl-e/alt-e edit | esc cancel"
-	status := fmt.Sprintf("foostore interactive picker | %d entries | metadata preview only", entryCount)
-	args := []string{
-		"--height=80%",
-		"--layout=reverse",
-		"--border",
-		"--ansi",
-		"--delimiter=\t",
-		"--with-nth=2,3,4",
-		"--prompt=secret> ",
-		"--expect=enter,ctrl-t,ctrl-y,ctrl-o,ctrl-e,alt-t,alt-y,alt-o,alt-e",
-		"--bind=ctrl-t:ignore,ctrl-y:ignore,ctrl-o:ignore,ctrl-e:ignore,alt-t:ignore,alt-y:ignore,alt-o:ignore,alt-e:ignore",
-		"--header=" + header + "\n" + status,
-		"--preview-window=down,6,wrap,border-top",
-		"--preview=printf 'entry: %s\\nkind: %s\\nhash suffix: %s\\n' {2} {3} {4}",
-		"--color=" + pickerColorTheme(os.Getenv("FOOSTORE_TUI_THEME")),
-	}
-	if extra := strings.TrimSpace(os.Getenv("FOOSTORE_FZF_OPTS")); extra != "" {
-		args = append(args, strings.Fields(extra)...)
-	}
-	return args
-}
-
-func pickerColorTheme(theme string) string {
-	switch strings.ToLower(strings.TrimSpace(theme)) {
-	case "", "bold":
-		return "fg:#f8fafc,bg:#0b1220,hl:#f59e0b,fg+:#ffffff,bg+:#1d4ed8,hl+:#fde047,info:#22d3ee,prompt:#f43f5e,pointer:#10b981,marker:#a78bfa,spinner:#fb7185,header:#38bdf8,border:#334155,separator:#0ea5e9,query:#e2e8f0,label:#f472b6"
-	case "clean":
-		return "fg:#e5e7eb,bg:#111827,hl:#93c5fd,fg+:#f9fafb,bg+:#1f2937,hl+:#93c5fd,info:#a7f3d0,prompt:#fbbf24,pointer:#34d399,marker:#34d399,spinner:#fbbf24,header:#a7f3d0,border:#374151"
-	case "neon":
-		return "fg:#d1fae5,bg:#020617,hl:#f0abfc,fg+:#ffffff,bg+:#0f172a,hl+:#f9a8d4,info:#67e8f9,prompt:#22d3ee,pointer:#22c55e,marker:#f472b6,spinner:#a78bfa,header:#38bdf8,border:#1d4ed8,separator:#22d3ee,query:#bbf7d0,label:#f0abfc"
-	case "mono":
-		return "fg:#e5e5e5,bg:#111111,hl:#ffffff,fg+:#ffffff,bg+:#222222,hl+:#ffffff,info:#d4d4d4,prompt:#ffffff,pointer:#ffffff,marker:#ffffff,spinner:#ffffff,header:#d4d4d4,border:#444444"
-	default:
-		return pickerColorTheme("bold")
-	}
-}
-
-func sanitizePickerField(s string) string {
-	s = strings.ReplaceAll(s, "\t", " ")
-	s = strings.ReplaceAll(s, "\n", " ")
-	return strings.TrimSpace(s)
-}
-
-func parsePickerResult(output string, idToDescription map[string]string) PickerResult {
-	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
-	if len(lines) < 2 {
-		return PickerResult{}
-	}
-
-	action, ok := parsePickerAction(lines[0])
+	action, ok := parsePickerAction(selection.Key)
 	if !ok {
-		return PickerResult{}
+		return PickerResult{}, nil
 	}
-
-	row := strings.TrimSpace(lines[1])
-	if row == "" {
-		return PickerResult{}
-	}
-
-	id := row
-	if parts := strings.SplitN(row, "\t", 2); len(parts) > 0 {
-		id = strings.TrimSpace(parts[0])
-	}
-
-	description, ok := idToDescription[id]
-	if !ok || description == "" {
-		return PickerResult{}
+	if selection.Description == "" {
+		return PickerResult{}, nil
 	}
 
 	return PickerResult{
-		Description: description,
+		Description: selection.Description,
+		Action:      action,
+	}, nil
+}
+
+func buildFzfArgs(entryCount int) []string {
+	return picker.BuildArgs(
+		entryCount,
+		os.Getenv("FOOSTORE_TUI_THEME"),
+		os.Getenv("FOOSTORE_FZF_OPTS"),
+	)
+}
+
+func pickerColorTheme(theme string) string {
+	return picker.ColorTheme(theme)
+}
+
+func parsePickerResult(output string, idToDescription map[string]string) PickerResult {
+	selection := picker.ParseSelection(output, idToDescription)
+	action, ok := parsePickerAction(selection.Key)
+	if !ok || selection.Description == "" {
+		return PickerResult{}
+	}
+	return PickerResult{
+		Description: selection.Description,
 		Action:      action,
 	}
 }
