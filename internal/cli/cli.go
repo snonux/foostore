@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"codeberg.org/snonux/foostore/internal/clipboard"
 	"codeberg.org/snonux/foostore/internal/config"
@@ -29,7 +30,7 @@ import (
 var CommandList = []string{
 	"ls", "search", "cat", "paste", "get", "add", "export", "pathexport",
 	"open", "edit", "import", "import_r", "rm", "sync", "status", "commit",
-	"reset", "fullcommit", "shred", "version", "commands", "help", "shell",
+	"reset", "fullcommit", "shred", "migrate-kdbx", "version", "commands", "help", "shell",
 	"exit", "last",
 }
 
@@ -55,6 +56,8 @@ type CLI struct {
 	g          *git.Git
 	clip       *clipboard.Clipboard
 	sh         *shell.Shell
+	openKDBX   func(string, string) (KDBXStore, error)
+	now        func() time.Time
 	lastResult string // most recent search result description
 }
 
@@ -100,10 +103,12 @@ func newCLI(ctx context.Context) (*CLI, error) {
 	clip := clipboard.New(cfg.GnomeClipboardCmd, cfg.MacOSClipboardCmd)
 
 	c := &CLI{
-		cfg:  &cfg,
-		st:   st,
-		g:    g,
-		clip: clip,
+		cfg:      &cfg,
+		st:       st,
+		g:        g,
+		clip:     clip,
+		openKDBX: OpenKDBXStore,
+		now:      time.Now,
 	}
 
 	// Create the shell with a completion function that references the CLI.
@@ -321,6 +326,9 @@ func (c *CLI) dispatchSimple(ctx context.Context, argv []string, cmd string) (in
 			return 1, "", true
 		}
 		return 0, "", true
+
+	case "migrate-kdbx":
+		return c.cmdMigrateKDBX(ctx, argv), "", true
 
 	case "version":
 		logMsg(fmt.Sprintf("foostore %s", version.Version))
@@ -681,6 +689,7 @@ import_r DIRECTORY [DEST_DIRECTORY]
 rm SEARCHTERM
 sync|status|commit|reset|fullcommit
 shred
+migrate-kdbx [--db PATH] [--pass-file PATH] [--binary-out PATH] [--dry-run]
 version
 commands
 help

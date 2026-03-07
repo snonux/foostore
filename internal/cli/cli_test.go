@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"codeberg.org/snonux/foostore/internal/clipboard"
 	"codeberg.org/snonux/foostore/internal/config"
@@ -581,4 +582,162 @@ func TestDispatch_importR_missingDir(t *testing.T) {
 			t.Errorf("dispatch(import_r, missing) = %d; want 1", ec)
 		}
 	})
+}
+
+type fakeKDBXStore struct {
+	overwrites map[string]bool
+	upserts    []string
+	saved      bool
+}
+
+func (f *fakeKDBXStore) UpsertTextEntry(groupPath []string, title, password, notes string) (bool, error) {
+	key := strings.Join(groupPath, "/") + "|" + title + "|" + password + "|" + notes
+	f.upserts = append(f.upserts, key)
+	return f.overwrites[title], nil
+}
+
+func (f *fakeKDBXStore) UpsertBinaryEntry(groupPath []string, title, filename string, content []byte) (bool, error) {
+	key := strings.Join(groupPath, "/") + "|" + title + "|binary:" + filename
+	f.upserts = append(f.upserts, key)
+	return f.overwrites[title], nil
+}
+
+func (f *fakeKDBXStore) Save() error {
+	f.saved = true
+	return nil
+}
+
+func TestReadPasswordFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), ".master.pass")
+	if err := os.WriteFile(file, []byte("supersecret\n"), 0o600); err != nil {
+		t.Fatalf("write password file: %v", err)
+	}
+
+	got, err := readPasswordFile(file)
+	if err != nil {
+		t.Fatalf("readPasswordFile: %v", err)
+	}
+	if got != "supersecret" {
+		t.Fatalf("readPasswordFile = %q; want supersecret", got)
+	}
+}
+
+func TestDispatch_migrateKDBX_dryRun(t *testing.T) {
+	c, cfg := testCLI(t)
+	initGitRepo(t, cfg.DataDir)
+
+	ctx := context.Background()
+	if err := c.st.Add(ctx, "work/entry", "top-secret"); err != nil {
+		t.Fatalf("Add text entry: %v", err)
+	}
+
+	srcBinary := filepath.Join(t.TempDir(), "logo.png")
+	if err := os.WriteFile(srcBinary, []byte{0, 1, 2, 3}, 0o600); err != nil {
+		t.Fatalf("write binary source: %v", err)
+	}
+	if err := c.st.Import(ctx, srcBinary, "images/logo.png", false); err != nil {
+		t.Fatalf("Import binary: %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "master")
+	if err := os.WriteFile(dbPath, []byte("not-used-in-dry-run"), 0o600); err != nil {
+		t.Fatalf("write db file: %v", err)
+	}
+	passFile := filepath.Join(t.TempDir(), ".master.pass")
+	if err := os.WriteFile(passFile, []byte("pw\n"), 0o600); err != nil {
+		t.Fatalf("write pass file: %v", err)
+	}
+	binaryOut := filepath.Join(t.TempDir(), "binary-out")
+
+	out := captureStdout(func() {
+		ec := c.dispatch(ctx, []string{
+			"migrate-kdbx",
+			"--db", dbPath,
+			"--pass-file", passFile,
+			"--binary-out", binaryOut,
+			"--dry-run",
+		})
+		if ec != 0 {
+			t.Fatalf("dispatch(migrate-kdbx dry-run) = %d; want 0", ec)
+		}
+	})
+
+	if !strings.Contains(out, "text_migrated=1") || !strings.Contains(out, "binary_migrated=1") {
+		t.Fatalf("unexpected migrate summary output: %q", out)
+	}
+	if _, err := os.Stat(filepath.Join(binaryOut, "images", "logo.png")); err == nil {
+		t.Fatalf("dry-run should not export binary files")
+	}
+}
+
+func TestDispatch_migrateKDBX_writesBinaryAndSavesKDBX(t *testing.T) {
+	c, cfg := testCLI(t)
+	initGitRepo(t, cfg.DataDir)
+
+	ctx := context.Background()
+	if err := c.st.Add(ctx, "finance/notes", "password: supersecret\nline1\nline2"); err != nil {
+		t.Fatalf("Add text entry: %v", err)
+	}
+
+	srcBinary := filepath.Join(t.TempDir(), "blob.bin")
+	if err := os.WriteFile(srcBinary, []byte{7, 8, 9}, 0o600); err != nil {
+		t.Fatalf("write binary source: %v", err)
+	}
+	if err := c.st.Import(ctx, srcBinary, "bin/blob.bin", false); err != nil {
+		t.Fatalf("Import binary: %v", err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "master")
+	if err := os.WriteFile(dbPath, []byte("placeholder"), 0o600); err != nil {
+		t.Fatalf("write db file: %v", err)
+	}
+	passFile := filepath.Join(t.TempDir(), ".master.pass")
+	if err := os.WriteFile(passFile, []byte("pw\n"), 0o600); err != nil {
+		t.Fatalf("write pass file: %v", err)
+	}
+	binaryOut := filepath.Join(t.TempDir(), "binary-out")
+
+	fake := &fakeKDBXStore{
+		overwrites: map[string]bool{"notes": true},
+	}
+	c.openKDBX = func(path, password string) (KDBXStore, error) {
+		if path != dbPath {
+			t.Fatalf("openKDBX path = %q; want %q", path, dbPath)
+		}
+		if password != "pw" {
+			t.Fatalf("openKDBX password = %q; want pw", password)
+		}
+		return fake, nil
+	}
+	c.now = func() time.Time { return time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC) }
+
+	out := captureStdout(func() {
+		ec := c.dispatch(ctx, []string{
+			"migrate-kdbx",
+			"--db", dbPath,
+			"--pass-file", passFile,
+			"--binary-out", binaryOut,
+		})
+		if ec != 0 {
+			t.Fatalf("dispatch(migrate-kdbx) = %d; want 0", ec)
+		}
+	})
+
+	if !fake.saved {
+		t.Fatalf("expected kdbx Save() to be called")
+	}
+	if len(fake.upserts) != 2 {
+		t.Fatalf("expected 2 upserts (text+binary), got %d (%v)", len(fake.upserts), fake.upserts)
+	}
+	all := strings.Join(fake.upserts, "\n")
+	if !strings.Contains(all, "finance|notes|supersecret|line1\nline2") {
+		t.Fatalf("missing text upsert payload, got %v", fake.upserts)
+	}
+	if !strings.Contains(out, "overwritten_text=1") {
+		t.Fatalf("expected overwritten_text=1 in summary, got %q", out)
+	}
+
+	if !strings.Contains(all, "bin|blob.bin|binary:blob.bin") {
+		t.Fatalf("expected binary upsert record, got %v", fake.upserts)
+	}
 }

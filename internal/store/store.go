@@ -149,6 +149,14 @@ func (s *Store) processIndexFile(ctx context.Context, path, searchTerm string, r
 	return nil
 }
 
+// LoadData decrypts and returns the .data payload for the given index entry.
+func (s *Store) LoadData(ctx context.Context, idx *Index) (*Data, error) {
+	if idx == nil {
+		return nil, fmt.Errorf("loading data: nil index")
+	}
+	return loadData(ctx, filepath.Join(s.cfg.DataDir, idx.DataFile), s.cipher, s.git)
+}
+
 // Search collects all indexes matching searchTerm, sorts them by Description,
 // and applies the given action to each. For ActionCat the decrypted content is
 // printed; for ActionExport/ActionPathExport the content is written to ExportDir.
