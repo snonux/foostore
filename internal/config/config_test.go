@@ -286,6 +286,76 @@ func TestLoad_missing_file_no_warning(t *testing.T) {
 	}
 }
 
+// TestLoad_backendDefaults verifies that the backend-related fields have the
+// expected default values (matching migrate-kdbx defaults) when no config file
+// exists.
+func TestLoad_backendDefaults(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	cfg := Load()
+
+	cases := []struct{ name, got, want string }{
+		{"Backend", cfg.Backend, "geheim"},
+		{"KDBXPath", cfg.KDBXPath, filepath.Join(dir, "Documents", "Keepass", "master")},
+		{"KDBXKeyFile", cfg.KDBXKeyFile, ""},
+		{"KDBXPassFile", cfg.KDBXPassFile, filepath.Join(dir, ".master.pass")},
+	}
+	for _, tc := range cases {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q; want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// TestLoad_backendJSONOverride verifies that backend config fields can be
+// overridden via the JSON config file and that absent fields keep their defaults.
+func TestLoad_backendJSONOverride(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	writeUserConfig(t, dir, `{"backend":"keepass","kdbx_path":"~/vaults/work.kdbx","kdbx_key_file":"~/vaults/work.key"}`)
+
+	cfg := Load()
+
+	cases := []struct{ name, got, want string }{
+		{"Backend", cfg.Backend, "keepass"},
+		{"KDBXPath", cfg.KDBXPath, filepath.Join(dir, "vaults", "work.kdbx")},
+		{"KDBXKeyFile", cfg.KDBXKeyFile, filepath.Join(dir, "vaults", "work.key")},
+		// KDBXPassFile not in JSON — must keep expanded default.
+		{"KDBXPassFile", cfg.KDBXPassFile, filepath.Join(dir, ".master.pass")},
+	}
+	for _, tc := range cases {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q; want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// TestLoad_backendTildeExpansion verifies that tilde paths for all three KDBX
+// path fields are expanded to absolute paths after Load().
+func TestLoad_backendTildeExpansion(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	writeUserConfig(t, dir, `{
+		"kdbx_path":      "~/kp/db.kdbx",
+		"kdbx_key_file":  "~/kp/db.key",
+		"kdbx_pass_file": "~/kp/db.pass"
+	}`)
+
+	cfg := Load()
+
+	cases := []struct{ name, got, want string }{
+		{"KDBXPath", cfg.KDBXPath, filepath.Join(dir, "kp", "db.kdbx")},
+		{"KDBXKeyFile", cfg.KDBXKeyFile, filepath.Join(dir, "kp", "db.key")},
+		{"KDBXPassFile", cfg.KDBXPassFile, filepath.Join(dir, "kp", "db.pass")},
+	}
+	for _, tc := range cases {
+		if tc.got != tc.want {
+			t.Errorf("%s = %q; want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
 // TestLoad_unreadable_file verifies that a config file that exists but cannot
 // be read emits a warning and returns defaults (the !os.IsNotExist branch).
 // EDITOR is unset so EditCmd falls back to "vi".

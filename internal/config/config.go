@@ -22,6 +22,8 @@ const (
 
 // Config holds all application-wide configuration values.
 // JSON field names use snake_case to match the original geheim.rb Config::DEFAULTS keys.
+// The Backend field selects the storage backend: "geheim" (default, encrypted
+// .index/.data files in a git repo) or "keepass" (a .kdbx database file).
 type Config struct {
 	DataDir           string   `json:"data_dir"`
 	ExportDir         string   `json:"export_dir"`
@@ -33,6 +35,19 @@ type Config struct {
 	GnomeClipboardCmd string   `json:"gnome_clipboard_cmd"`
 	MacOSClipboardCmd string   `json:"macos_clipboard_cmd"`
 	SyncRepos         []string `json:"sync_repos"`
+
+	// Backend selects the storage backend: "geheim" (default) or "keepass".
+	Backend string `json:"backend"`
+	// KDBXPath is the path to the KeePass .kdbx database file.
+	// Defaults to ~/Documents/Keepass/master to match migrate-kdbx defaults.
+	KDBXPath string `json:"kdbx_path"`
+	// KDBXKeyFile is the optional path to a KeePass key file.
+	// An empty value disables key file authentication.
+	KDBXKeyFile string `json:"kdbx_key_file"`
+	// KDBXPassFile is the optional path to a file containing the KeePass password.
+	// Defaults to ~/.master.pass to match migrate-kdbx defaults.
+	// When empty, the password is read interactively at startup.
+	KDBXPassFile string `json:"kdbx_pass_file"`
 }
 
 // resolveHomeDir resolves the current user's home directory from OS state.
@@ -99,6 +114,15 @@ func defaultConfigWithHome(home string) Config {
 		GnomeClipboardCmd: "gpaste-client",
 		MacOSClipboardCmd: "pbcopy",
 		SyncRepos:         []string{"git1", "git2"},
+
+		// Backend defaults match the geheim (original) storage backend.
+		// KDBXPath and KDBXPassFile defaults mirror the migrate-kdbx command
+		// at internal/cli/migrate_kdbx.go so users who already use that command
+		// have zero additional configuration to provide.
+		Backend:      "geheim",
+		KDBXPath:     filepath.Join(home, "Documents", "Keepass", "master"),
+		KDBXKeyFile:  "",
+		KDBXPassFile: filepath.Join(home, ".master.pass"),
 	}
 }
 
@@ -126,10 +150,15 @@ func expandTilde(path string) string {
 }
 
 // expandPathFieldsWithHome tilde-expands every path-typed field in cfg in place.
+// This covers both the geheim fields (DataDir, ExportDir, KeyFile) and the
+// KeePass fields (KDBXPath, KDBXKeyFile, KDBXPassFile).
 func expandPathFieldsWithHome(cfg *Config, home string) {
 	cfg.DataDir = expandTildeWithHome(cfg.DataDir, home)
 	cfg.ExportDir = expandTildeWithHome(cfg.ExportDir, home)
 	cfg.KeyFile = expandTildeWithHome(cfg.KeyFile, home)
+	cfg.KDBXPath = expandTildeWithHome(cfg.KDBXPath, home)
+	cfg.KDBXKeyFile = expandTildeWithHome(cfg.KDBXKeyFile, home)
+	cfg.KDBXPassFile = expandTildeWithHome(cfg.KDBXPassFile, home)
 }
 
 // expandPathFields tilde-expands every path-typed field in cfg in place.
