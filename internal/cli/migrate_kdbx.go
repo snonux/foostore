@@ -31,6 +31,17 @@ type migrateKDBXStats struct {
 }
 
 func (c *CLI) cmdMigrateKDBX(ctx context.Context, argv []string) int {
+	// migrate-kdbx only makes sense when the source is the geheim backend.
+	// Refuse early when the active backend is already keepass to avoid
+	// accidentally migrating keepass→keepass.
+	// We check c.effectiveBackend (which incorporates the --backend flag override)
+	// rather than c.cfg.Backend (config file only) so that "foostore --backend keepass
+	// migrate-kdbx" is correctly rejected even when cfg.Backend is empty.
+	if c.effectiveBackend == "keepass" {
+		warn("migrate-kdbx is not supported when the active backend is 'keepass'; it migrates geheim→keepass only")
+		return 1
+	}
+
 	opts, err := c.parseMigrateKDBXOptions(argv)
 	if err != nil {
 		warn(err.Error())

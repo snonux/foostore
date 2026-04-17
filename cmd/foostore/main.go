@@ -30,7 +30,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	c, err := cli.New(ctx)
+	// Capture the remaining arguments once so both New and Run receive the same
+	// slice.  New parses --backend from it to select the backend at init time;
+	// Run strips --backend before dispatching commands.
+	args := flag.Args()
+
+	c, err := cli.New(ctx, args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL %v\n", err)
 		os.Exit(3)
@@ -39,5 +44,5 @@ func main() {
 	// flag.Args() returns arguments after flags, so flag-aware invocations
 	// like `foostore -version` work while plain `foostore cat foo` still passes
 	// all args through unchanged.
-	os.Exit(c.Run(ctx, flag.Args()))
+	os.Exit(c.Run(ctx, args))
 }

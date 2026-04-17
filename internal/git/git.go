@@ -1,6 +1,11 @@
 // Package git wraps git operations used by foostore to manage the secret store.
 // It mirrors the Git module from the original Ruby implementation (geheim.rb lines 79-123),
 // running real git subprocesses rather than using a Go git library.
+//
+// The package exposes a Gitter interface so that callers can accept either a
+// real *Git (backed by a git repository) or a *NoOp stub (for directories that
+// are not git repositories). This avoids nil-pointer panics in the CLI dispatch
+// loop and keeps git-related decisions local to this package.
 package git
 
 import (
@@ -10,16 +15,58 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
+
+// Gitter is the interface that both *Git (real git operations) and *NoOp
+// (informational no-ops) implement. The CLI holds a Gitter so that it can be
+// freely swapped without changing any dispatch logic.
+type Gitter interface {
+	// Add stages a single file for the next commit.
+	Add(ctx context.Context, filePath string) error
+
+	// Remove stages a file deletion for the next commit.
+	Remove(ctx context.Context, filePath string) error
+
+	// Status prints the current git status of the working directory.
+	Status(ctx context.Context) error
+
+	// Commit records all staged changes with a generic commit message.
+	Commit(ctx context.Context) error
+
+	// Reset discards all uncommitted changes in the working directory.
+	Reset(ctx context.Context) error
+
+	// Sync pulls from and pushes to each configured remote repository.
+	Sync(ctx context.Context, syncRepos []string) error
+}
 
 // Git provides git operations scoped to the secret store's data directory.
 type Git struct {
 	dataDir string
 }
 
+// Compile-time assertion: *Git must satisfy Gitter.
+var _ Gitter = (*Git)(nil)
+
 // New creates a Git helper for the given data directory.
 func New(dataDir string) *Git {
 	return &Git{dataDir: dataDir}
+}
+
+// IsGitRepo reports whether the given directory is inside a git working tree.
+// It runs 'git rev-parse --is-inside-work-tree' in that directory and returns
+// true when the command exits with status 0 and outputs "true". This is the
+// canonical way to check for a git repo without inspecting the filesystem
+// structure directly (works with worktrees, submodules, etc.).
+func IsGitRepo(dir string) bool {
+	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "true"
 }
 
 // Add stages a single file for the next commit.

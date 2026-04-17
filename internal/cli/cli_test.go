@@ -741,3 +741,173 @@ func TestDispatch_migrateKDBX_writesBinaryAndSavesKDBX(t *testing.T) {
 		t.Fatalf("expected binary upsert record, got %v", fake.upserts)
 	}
 }
+
+// ---- parseBackendFlag -------------------------------------------------------
+
+// TestParseBackendFlag covers the --backend flag extraction.
+func TestParseBackendFlag(t *testing.T) {
+	cases := []struct {
+		name        string
+		argv        []string
+		wantBackend string
+		wantArgv    []string
+	}{
+		{
+			name:        "no flag",
+			argv:        []string{"ls"},
+			wantBackend: "",
+			wantArgv:    []string{"ls"},
+		},
+		{
+			name:        "flag at start",
+			argv:        []string{"--backend", "keepass", "ls"},
+			wantBackend: "keepass",
+			wantArgv:    []string{"ls"},
+		},
+		{
+			name:        "flag at end",
+			argv:        []string{"cat", "foo", "--backend", "geheim"},
+			wantBackend: "geheim",
+			wantArgv:    []string{"cat", "foo"},
+		},
+		{
+			name:        "flag alone",
+			argv:        []string{"--backend", "keepass"},
+			wantBackend: "keepass",
+			wantArgv:    []string{},
+		},
+		{
+			name:        "backend flag without value (treated as no flag)",
+			argv:        []string{"--backend"},
+			wantBackend: "",
+			wantArgv:    []string{"--backend"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotBackend, gotArgv := parseBackendFlag(tc.argv)
+			if gotBackend != tc.wantBackend {
+				t.Errorf("backend = %q; want %q", gotBackend, tc.wantBackend)
+			}
+			if len(gotArgv) != len(tc.wantArgv) {
+				t.Fatalf("argv len = %d; want %d (%v vs %v)", len(gotArgv), len(tc.wantArgv), gotArgv, tc.wantArgv)
+			}
+			for i := range gotArgv {
+				if gotArgv[i] != tc.wantArgv[i] {
+					t.Errorf("argv[%d] = %q; want %q", i, gotArgv[i], tc.wantArgv[i])
+				}
+			}
+		})
+	}
+}
+
+// ---- resolveBackend ---------------------------------------------------------
+
+// TestResolveBackend covers the flag-over-config priority logic.
+func TestResolveBackend(t *testing.T) {
+	cases := []struct {
+		name      string
+		flagValue string
+		cfgValue  string
+		want      string
+	}{
+		{name: "flag wins", flagValue: "keepass", cfgValue: "geheim", want: "keepass"},
+		{name: "config when no flag", flagValue: "", cfgValue: "keepass", want: "keepass"},
+		{name: "default when both empty", flagValue: "", cfgValue: "", want: "geheim"},
+		{name: "flag overrides empty config", flagValue: "geheim", cfgValue: "", want: "geheim"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveBackend(tc.flagValue, tc.cfgValue)
+			if got != tc.want {
+				t.Errorf("resolveBackend(%q, %q) = %q; want %q", tc.flagValue, tc.cfgValue, got, tc.want)
+			}
+		})
+	}
+}
+
+// ---- readKeepassPassphrase --------------------------------------------------
+
+// TestReadKeepassPassphrase_envVar verifies that $PIN takes precedence over
+// all other sources for the keepass passphrase.
+func TestReadKeepassPassphrase_envVar(t *testing.T) {
+	t.Setenv("PIN", "envpassword")
+	cfg := &config.Config{KDBXPassFile: "/should/not/be/read"}
+	got, err := readKeepassPassphrase(cfg)
+	if err != nil {
+		t.Fatalf("readKeepassPassphrase: %v", err)
+	}
+	if got != "envpassword" {
+		t.Errorf("readKeepassPassphrase = %q; want envpassword", got)
+	}
+}
+
+// TestReadKeepassPassphrase_passFile verifies that KDBXPassFile is read when
+// $PIN is unset.
+func TestReadKeepassPassphrase_passFile(t *testing.T) {
+	t.Setenv("PIN", "")
+	passFile := filepath.Join(t.TempDir(), "kp.pass")
+	if err := os.WriteFile(passFile, []byte("filepassword\n"), 0o600); err != nil {
+		t.Fatalf("write pass file: %v", err)
+	}
+	cfg := &config.Config{KDBXPassFile: passFile}
+	got, err := readKeepassPassphrase(cfg)
+	if err != nil {
+		t.Fatalf("readKeepassPassphrase: %v", err)
+	}
+	if got != "filepassword" {
+		t.Errorf("readKeepassPassphrase = %q; want filepassword", got)
+	}
+}
+
+// ---- readKeepassKeyFile -----------------------------------------------------
+
+// TestReadKeepassKeyFile_empty verifies that an empty KDBXKeyFile returns nil.
+func TestReadKeepassKeyFile_empty(t *testing.T) {
+	cfg := &config.Config{KDBXKeyFile: ""}
+	data, err := readKeepassKeyFile(cfg)
+	if err != nil {
+		t.Fatalf("readKeepassKeyFile: %v", err)
+	}
+	if data != nil {
+		t.Errorf("readKeepassKeyFile empty = %v; want nil", data)
+	}
+}
+
+// TestReadKeepassKeyFile_readsBytes verifies that a non-empty KDBXKeyFile
+// path returns its contents.
+func TestReadKeepassKeyFile_readsBytes(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "kp.key")
+	want := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+	if err := os.WriteFile(keyFile, want, 0o600); err != nil {
+		t.Fatalf("write key file: %v", err)
+	}
+	cfg := &config.Config{KDBXKeyFile: keyFile}
+	got, err := readKeepassKeyFile(cfg)
+	if err != nil {
+		t.Fatalf("readKeepassKeyFile: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Errorf("readKeepassKeyFile = %v; want %v", got, want)
+	}
+}
+
+// ---- migrate-kdbx with keepass backend guard --------------------------------
+
+// TestDispatch_migrateKDBX_blockedWithKeepassBackend verifies that
+// migrate-kdbx returns exit code 1 when the effective backend is "keepass".
+// The guard in cmdMigrateKDBX checks c.effectiveBackend (not c.cfg.Backend),
+// so we must set that field directly to exercise the actual guard path.
+func TestDispatch_migrateKDBX_blockedWithKeepassBackend(t *testing.T) {
+	c, _ := testCLI(t)
+	// Set effectiveBackend directly — cmdMigrateKDBX checks this field rather
+	// than cfg.Backend so that --backend flag overrides are also caught.
+	c.effectiveBackend = "keepass"
+
+	ec := c.dispatch(context.Background(), []string{"migrate-kdbx"})
+	if ec != 1 {
+		t.Errorf("dispatch(migrate-kdbx) with keepass effectiveBackend = %d; want 1", ec)
+	}
+}

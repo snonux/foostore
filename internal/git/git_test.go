@@ -264,3 +264,49 @@ func TestSync_bad_remote(t *testing.T) {
 		t.Fatal("expected error when syncing with a nonexistent remote, got nil")
 	}
 }
+
+// TestIsGitRepo_inside verifies that IsGitRepo returns true for a directory
+// that is a git repository.
+func TestIsGitRepo_inside(t *testing.T) {
+	dir := initRepo(t)
+	if !git.IsGitRepo(dir) {
+		t.Errorf("expected IsGitRepo(%q) = true for a git repo, got false", dir)
+	}
+}
+
+// TestIsGitRepo_outside verifies that IsGitRepo returns false for a plain
+// directory that is not a git repository.
+func TestIsGitRepo_outside(t *testing.T) {
+	dir := t.TempDir() // just a plain temp dir, not git-initialised
+	if git.IsGitRepo(dir) {
+		t.Errorf("expected IsGitRepo(%q) = false for a non-git dir, got true", dir)
+	}
+}
+
+// TestNoOp_satisfies_Gitter verifies that *git.NoOp compiles as a Gitter and
+// that all its methods return nil (no-op, no error) so they are safe to call
+// unconditionally from CLI dispatch.
+func TestNoOp_satisfies_Gitter(t *testing.T) {
+	var g git.Gitter = git.NewNoOp()
+	ctx := context.Background()
+
+	table := []struct {
+		name string
+		fn   func() error
+	}{
+		{"Add", func() error { return g.Add(ctx, "/some/path") }},
+		{"Remove", func() error { return g.Remove(ctx, "/some/path") }},
+		{"Status", func() error { return g.Status(ctx) }},
+		{"Commit", func() error { return g.Commit(ctx) }},
+		{"Reset", func() error { return g.Reset(ctx) }},
+		{"Sync", func() error { return g.Sync(ctx, []string{"origin"}) }},
+	}
+
+	for _, tt := range table {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.fn(); err != nil {
+				t.Errorf("NoOp.%s returned error: %v", tt.name, err)
+			}
+		})
+	}
+}
