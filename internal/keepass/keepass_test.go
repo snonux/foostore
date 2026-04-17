@@ -316,6 +316,182 @@ func TestImportSkipsOnDuplicate(t *testing.T) {
 	}
 }
 
+// TestAddAttachment verifies that Add with a virtual attachment path creates
+// an attachment on the parent entry and it surfaces via WalkIndexes and LoadData.
+func TestAddAttachment(t *testing.T) {
+	dbPath := createTestDB(t)
+	b := newTestBackend(t, dbPath)
+	ctx := context.Background()
+
+	// "Work/Email" already exists; add an attachment to it.
+	attachContent := []byte("attachment binary content")
+	if err := b.Add(ctx, "Work/Email/notes.txt", string(attachContent)); err != nil {
+		// notes.txt is a text extension — IsBinary() would return false,
+		// but isAttachmentPath checks entry existence, not extension.
+		// The parent "Work/Email" exists so this must succeed.
+		t.Fatalf("Add attachment error: %v", err)
+	}
+
+	// Re-open and verify the attachment virtual entry appears.
+	b2 := newTestBackend(t, dbPath)
+	found := false
+	if err := b2.WalkIndexes(ctx, "Work/Email/notes.txt", func(idx *store.Index) error {
+		if idx.Description == "Work/Email/notes.txt" {
+			found = true
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("WalkIndexes after AddAttachment: %v", err)
+	}
+	if !found {
+		t.Error("Work/Email/notes.txt not found after Add attachment")
+	}
+
+	// LoadData for the attachment virtual entry must return the raw bytes.
+	idx := &store.Index{Description: "Work/Email/notes.txt"}
+	d, err := b2.LoadData(ctx, idx)
+	if err != nil {
+		t.Fatalf("LoadData attachment error: %v", err)
+	}
+	if string(d.Content) != string(attachContent) {
+		t.Errorf("attachment content: got %q, want %q", d.Content, attachContent)
+	}
+}
+
+// TestAddAttachmentReplace verifies that adding an attachment with an existing
+// name replaces the old attachment bytes.
+func TestAddAttachmentReplace(t *testing.T) {
+	dbPath := createTestDB(t)
+	b := newTestBackend(t, dbPath)
+	ctx := context.Background()
+
+	// "Work/Report" already exists and has "report.pdf" attached.
+	// Replace it with new content.
+	newContent := []byte("updated PDF bytes")
+	if err := b.Add(ctx, "Work/Report/report.pdf", string(newContent)); err != nil {
+		t.Fatalf("Add (replace) attachment error: %v", err)
+	}
+
+	// LoadData must return the new bytes.
+	b2 := newTestBackend(t, dbPath)
+	idx := &store.Index{Description: "Work/Report/report.pdf"}
+	d, err := b2.LoadData(ctx, idx)
+	if err != nil {
+		t.Fatalf("LoadData after replace error: %v", err)
+	}
+	if string(d.Content) != string(newContent) {
+		t.Errorf("attachment content after replace: got %q, want %q", d.Content, newContent)
+	}
+}
+
+// TestAddNoParentCreatesTextEntry verifies that Add with a multi-component path
+// whose parent does not exist as an entry creates a new regular text entry rather
+// than treating the last component as an attachment filename. This is the
+// "new nested entry" case where no parent entry has been established yet.
+func TestAddNoParentCreatesTextEntry(t *testing.T) {
+	dbPath := createTestDB(t)
+	b := newTestBackend(t, dbPath)
+	ctx := context.Background()
+
+	// "Work/Ghost" does not exist as an entry, so "Work/Ghost/notes.txt" is
+	// treated as a new text entry (not an attachment).
+	if err := b.Add(ctx, "Work/Ghost/notes.txt", "Password: pw\n"); err != nil {
+		t.Fatalf("Add new text entry error: %v", err)
+	}
+
+	// Re-open: the new entry must appear as a text entry (not an attachment).
+	b2 := newTestBackend(t, dbPath)
+	found := false
+	if err := b2.WalkIndexes(ctx, "Work/Ghost/notes.txt", func(idx *store.Index) error {
+		if idx.Description == "Work/Ghost/notes.txt" {
+			found = true
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("WalkIndexes: %v", err)
+	}
+	if !found {
+		t.Error("Work/Ghost/notes.txt not found after Add")
+	}
+}
+
+// TestRemoveAttachment verifies that Remove on a virtual attachment path removes
+// only the attachment and leaves the parent entry intact.
+func TestRemoveAttachment(t *testing.T) {
+	dbPath := createTestDB(t)
+	b := newTestBackend(t, dbPath)
+	ctx := context.Background()
+
+	// "Work/Report/report.pdf" is a virtual attachment entry.
+	input := strings.NewReader("y\n")
+	if err := b.Remove(ctx, `^Work/Report/report\.pdf$`, input); err != nil {
+		t.Fatalf("Remove attachment error: %v", err)
+	}
+
+	// Re-open: the parent entry "Work/Report" must still exist.
+	b2 := newTestBackend(t, dbPath)
+	parentFound := false
+	attachFound := false
+	if err := b2.WalkIndexes(ctx, "", func(idx *store.Index) error {
+		switch idx.Description {
+		case "Work/Report":
+			parentFound = true
+		case "Work/Report/report.pdf":
+			attachFound = true
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("WalkIndexes after Remove attachment: %v", err)
+	}
+	if !parentFound {
+		t.Error("parent entry Work/Report missing after attachment removal")
+	}
+	if attachFound {
+		t.Error("Work/Report/report.pdf still present after Remove attachment")
+	}
+}
+
+// TestAddThenRemoveAttachment verifies the full attachment lifecycle: Add,
+// then Remove via WalkIndexes → LoadData roundtrip.
+func TestAddThenRemoveAttachment(t *testing.T) {
+	dbPath := createTestDB(t)
+	b := newTestBackend(t, dbPath)
+	ctx := context.Background()
+
+	// Add an attachment to an existing entry.
+	if err := b.Add(ctx, "Personal/Note/secret.bin", "binary payload"); err != nil {
+		t.Fatalf("Add attachment error: %v", err)
+	}
+
+	// Verify it's there.
+	b2 := newTestBackend(t, dbPath)
+	idx := &store.Index{Description: "Personal/Note/secret.bin"}
+	if _, err := b2.LoadData(ctx, idx); err != nil {
+		t.Fatalf("LoadData after Add: %v", err)
+	}
+
+	// Remove it.
+	input := strings.NewReader("y\n")
+	if err := b2.Remove(ctx, `^Personal/Note/secret\.bin$`, input); err != nil {
+		t.Fatalf("Remove attachment error: %v", err)
+	}
+
+	// Verify it's gone but parent remains.
+	b3 := newTestBackend(t, dbPath)
+	var descs []string
+	if err := b3.WalkIndexes(ctx, "Personal", func(idx *store.Index) error {
+		descs = append(descs, idx.Description)
+		return nil
+	}); err != nil {
+		t.Fatalf("WalkIndexes: %v", err)
+	}
+	for _, d := range descs {
+		if d == "Personal/Note/secret.bin" {
+			t.Error("attachment still present after Remove")
+		}
+	}
+}
+
 // TestFormatParseRoundtrip verifies that formatContent and parseContent are
 // mutual inverses across a range of inputs.
 func TestFormatParseRoundtrip(t *testing.T) {
