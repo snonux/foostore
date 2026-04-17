@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"codeberg.org/snonux/foostore/internal/backend"
 	"codeberg.org/snonux/foostore/internal/clipboard"
 	"codeberg.org/snonux/foostore/internal/config"
 	"codeberg.org/snonux/foostore/internal/crypto"
@@ -50,9 +51,15 @@ var SearchActions = map[string]store.Action{
 // lastResult is updated by dispatch and used as a fallback search term when
 // a search-based command is invoked without an explicit term (mirrors Ruby's
 // @last_result instance variable).
+//
+// st is declared as backend.Backend (interface) rather than *store.Store
+// (concrete type) so that alternative backends (e.g. KeePass) can be swapped
+// in without touching the dispatch or shell-loop logic. The current geheim
+// backend is *store.Store, which satisfies Backend via the compile-time check
+// in internal/backend/backend.go.
 type CLI struct {
 	cfg        *config.Config
-	st         *store.Store
+	st         backend.Backend
 	g          *git.Git
 	clip       *clipboard.Clipboard
 	sh         *shell.Shell
