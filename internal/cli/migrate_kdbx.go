@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"codeberg.org/snonux/foostore/internal/keepass"
 	"codeberg.org/snonux/foostore/internal/store"
 )
 
@@ -106,7 +107,7 @@ func (c *CLI) cmdMigrateKDBX(ctx context.Context, argv []string) int {
 }
 
 func (c *CLI) migrateOneEntry(ctx context.Context, idx *store.Index, opts migrateKDBXOptions, kdbx KDBXStore, stats *migrateKDBXStats) error {
-	safePath, err := sanitizeRelativePath(idx.Description)
+	safePath, err := keepass.SanitizeRelativePath(idx.Description)
 	if err != nil {
 		return fmt.Errorf("entry %q: %w", idx.Description, err)
 	}
@@ -117,7 +118,7 @@ func (c *CLI) migrateOneEntry(ctx context.Context, idx *store.Index, opts migrat
 	}
 
 	if idx.IsBinary() {
-		groupPath, title, err := splitDescriptionPath(safePath)
+		groupPath, title, err := keepass.SplitDescriptionPath(safePath)
 		if err != nil {
 			return fmt.Errorf("mapping binary entry %q: %w", idx.Description, err)
 		}
@@ -137,7 +138,7 @@ func (c *CLI) migrateOneEntry(ctx context.Context, idx *store.Index, opts migrat
 		return nil
 	}
 
-	groupPath, title, err := splitDescriptionPath(safePath)
+	groupPath, title, err := keepass.SplitDescriptionPath(safePath)
 	if err != nil {
 		return fmt.Errorf("mapping text entry %q: %w", idx.Description, err)
 	}

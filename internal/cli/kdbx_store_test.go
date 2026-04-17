@@ -1,11 +1,15 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+
+	"codeberg.org/snonux/foostore/internal/keepass"
+)
 
 func TestSplitDescriptionPath(t *testing.T) {
-	group, title, err := splitDescriptionPath("foo/bar/baz")
+	group, title, err := keepass.SplitDescriptionPath("foo/bar/baz")
 	if err != nil {
-		t.Fatalf("splitDescriptionPath: %v", err)
+		t.Fatalf("SplitDescriptionPath: %v", err)
 	}
 	if title != "baz" {
 		t.Fatalf("title = %q; want baz", title)
@@ -16,8 +20,8 @@ func TestSplitDescriptionPath(t *testing.T) {
 }
 
 func TestSanitizeRelativePathRejectsTraversal(t *testing.T) {
-	if _, err := sanitizeRelativePath("../secret"); err == nil {
-		t.Fatal("sanitizeRelativePath should reject traversal path")
+	if _, err := keepass.SanitizeRelativePath("../secret"); err == nil {
+		t.Fatal("SanitizeRelativePath should reject traversal path")
 	}
 }
 
