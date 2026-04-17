@@ -150,11 +150,33 @@ func (s *Store) processIndexFile(ctx context.Context, path, searchTerm string, r
 }
 
 // LoadData decrypts and returns the .data payload for the given index entry.
+// The returned Data.WriteBack is populated with the geheim re-encrypt path so
+// that ReimportAfterExport encrypts and git-stages the file via Commit, exactly
+// as before the WriteBack hook was introduced.
 func (s *Store) LoadData(ctx context.Context, idx *Index) (*Data, error) {
 	if idx == nil {
 		return nil, fmt.Errorf("loading data: nil index")
 	}
-	return loadData(ctx, filepath.Join(s.cfg.DataDir, idx.DataFile), s.cipher, s.git)
+
+	d, err := loadData(ctx, filepath.Join(s.cfg.DataDir, idx.DataFile), s.cipher, s.git)
+	if err != nil {
+		return nil, err
+	}
+
+	// Populate WriteBack so that ReimportAfterExport uses the standard
+	// encrypt-and-git-stage path rather than relying on ReimportAfterExport's
+	// built-in Commit fallback. This makes the hook explicit and keeps
+	// backend-specific reimport logic out of the Data struct itself
+	// (Open/Closed principle). d.Content is already set by ReimportAfterExport
+	// before calling WriteBack, so no assignment is needed here.
+	d.WriteBack = func(newContent []byte) error {
+		// newContent is intentionally ignored here: ReimportAfterExport already
+		// assigned it to d.Content before calling WriteBack, and Commit reads
+		// d.Content directly.
+		return d.Commit(ctx, true)
+	}
+
+	return d, nil
 }
 
 // Search collects all indexes matching searchTerm, sorts them by Description,
@@ -210,8 +232,11 @@ func (s *Store) applyAction(ctx context.Context, idx *Index, action Action, acti
 	default:
 		// ActionPaste, ActionOpen, ActionEdit — require external tools;
 		// delegate to the caller-supplied callback.
+		// Use s.LoadData (exported) rather than the bare loadData so that
+		// WriteBack is populated, enabling ReimportAfterExport (ActionEdit)
+		// to encrypt and git-stage changes via the standard hook path.
 		if actionFn != nil {
-			d, err := loadData(ctx, filepath.Join(s.cfg.DataDir, idx.DataFile), s.cipher, s.git)
+			d, err := s.LoadData(ctx, idx)
 			if err != nil {
 				return err
 			}

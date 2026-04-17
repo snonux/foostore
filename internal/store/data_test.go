@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -273,5 +274,144 @@ func TestDataCommitMissingCommitter(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing committer") {
 		t.Fatalf("Commit error = %q; want missing committer", err.Error())
+	}
+}
+
+// --- TestReimportAfterExportWriteBack ----------------------------------------
+
+// writeBackMode selects which sub-case of TestReimportAfterExportWriteBack runs.
+type writeBackMode int
+
+const (
+	modeNoWriteBack    writeBackMode = iota // nil WriteBack → falls back to Commit
+	modeWriteBack                           // non-nil WriteBack → hook is called
+	modeWriteBackError                      // non-nil WriteBack that returns an error
+)
+
+// TestReimportAfterExportWriteBack exercises three paths through ReimportAfterExport:
+//   - nil WriteBack: falls back to Commit (verified via "missing committer" error)
+//   - non-nil WriteBack: hook is called with the new content
+//   - non-nil WriteBack that errors: error is propagated to the caller
+//
+// Table-driven so new cases can be added without duplicating setup logic.
+func TestReimportAfterExportWriteBack(t *testing.T) {
+	cases := []struct {
+		name          string
+		editedContent string
+		mode          writeBackMode
+	}{
+		{
+			name:          "nil WriteBack uses Commit path",
+			editedContent: "updated via commit path\n",
+			mode:          modeNoWriteBack,
+		},
+		{
+			name:          "non-nil WriteBack is called with new content",
+			editedContent: "updated via WriteBack hook\n",
+			mode:          modeWriteBack,
+		},
+		{
+			name:          "WriteBack error is propagated",
+			editedContent: "updated content that triggers hook error\n",
+			mode:          modeWriteBackError,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			dir := t.TempDir()
+
+			// Write the "edited" file that ReimportAfterExport will read.
+			exportedPath := filepath.Join(dir, "secret.txt")
+			if err := os.WriteFile(exportedPath, []byte(tc.editedContent), 0o600); err != nil {
+				t.Fatalf("writing exported file: %v", err)
+			}
+
+			switch tc.mode {
+			case modeWriteBack:
+				testReimportWithWriteBack(t, ctx, exportedPath, tc.editedContent)
+			case modeWriteBackError:
+				testReimportWithWriteBackError(t, ctx, exportedPath)
+			case modeNoWriteBack:
+				testReimportWithoutWriteBack(t, ctx, dir, exportedPath, tc.editedContent)
+			}
+		})
+	}
+}
+
+// testReimportWithWriteBack verifies that ReimportAfterExport calls WriteBack
+// with the file's content when WriteBack is non-nil.
+func testReimportWithWriteBack(t *testing.T, ctx context.Context, exportedPath, wantContent string) {
+	t.Helper()
+
+	var capturedContent []byte
+	d := &Data{
+		ExportedPath: exportedPath,
+		WriteBack: func(newContent []byte) error {
+			capturedContent = newContent
+			return nil
+		},
+	}
+
+	if err := d.ReimportAfterExport(ctx); err != nil {
+		t.Fatalf("ReimportAfterExport with WriteBack: %v", err)
+	}
+	if string(capturedContent) != wantContent {
+		t.Errorf("WriteBack received %q; want %q", capturedContent, wantContent)
+	}
+	// Content field should also be updated.
+	if string(d.Content) != wantContent {
+		t.Errorf("d.Content = %q; want %q", d.Content, wantContent)
+	}
+}
+
+// testReimportWithWriteBackError verifies that when WriteBack returns a non-nil
+// error, ReimportAfterExport propagates that error to the caller unchanged.
+func testReimportWithWriteBackError(t *testing.T, ctx context.Context, exportedPath string) {
+	t.Helper()
+
+	sentinelErr := errors.New("backend write failed")
+	d := &Data{
+		ExportedPath: exportedPath,
+		WriteBack: func(newContent []byte) error {
+			return sentinelErr
+		},
+	}
+
+	err := d.ReimportAfterExport(ctx)
+	if err == nil {
+		t.Fatal("ReimportAfterExport with failing WriteBack: expected error, got nil")
+	}
+	if !errors.Is(err, sentinelErr) {
+		t.Errorf("error = %v; want sentinel error %v", err, sentinelErr)
+	}
+}
+
+// testReimportWithoutWriteBack verifies that ReimportAfterExport falls back to
+// Commit (encrypt+git-stage) when WriteBack is nil. We stub out git by leaving
+// committer nil and expect the "missing committer" error, which confirms the
+// Commit path was reached (not a hook).
+func testReimportWithoutWriteBack(t *testing.T, ctx context.Context, dir, exportedPath, editedContent string) {
+	t.Helper()
+
+	c := newTestCipher(t)
+	dataPath := filepath.Join(dir, "entry.data")
+
+	d := &Data{
+		ExportedPath: exportedPath,
+		DataPath:     dataPath,
+		encryptor:    c,
+		// WriteBack intentionally left nil — must use Commit path.
+		// committer left nil so Commit returns "missing committer" error,
+		// confirming we reached Commit rather than any WriteBack hook.
+	}
+
+	err := d.ReimportAfterExport(ctx)
+	if err == nil {
+		t.Fatal("expected missing committer error from nil-WriteBack path, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing committer") {
+		t.Errorf("error = %q; want missing committer (confirms Commit path was taken)", err.Error())
 	}
 }

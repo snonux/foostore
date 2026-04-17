@@ -13,12 +13,21 @@ import (
 // Data holds a decrypted secret blob and the paths used to persist it.
 // DataPath is the absolute path to the on-disk .data file.
 // ExportedPath is populated by Export() and consumed by ReimportAfterExport().
+//
+// WriteBack is an optional hook for backend-specific persistence. When set,
+// ReimportAfterExport calls WriteBack(newContent) instead of the default
+// encrypt-and-git-stage path (Commit). The KeePass backend will populate it
+// with parse-fields+upsert+save. This keeps the edit command identical
+// across backends.
 type Data struct {
 	Content      []byte
 	DataPath     string // absolute path to .data file
 	ExportedPath string // set by Export(), used by ReimportAfterExport()
-	encryptor    Encryptor
-	committer    Committer
+	// WriteBack, when non-nil, is called by ReimportAfterExport with the
+	// newly read content instead of using the default Commit path.
+	WriteBack func([]byte) error
+	encryptor Encryptor
+	committer Committer
 }
 
 // loadData decrypts a .data file and returns a Data struct with Content populated.
@@ -71,8 +80,12 @@ func (d *Data) Export(ctx context.Context, exportDir, destinationFile string) er
 }
 
 // ReimportAfterExport reads the (possibly edited) file from ExportedPath back
-// into Content and then commits it. This is used by the edit workflow: export →
-// user edits in external editor → reimport.
+// into Content and persists the new content. This is used by the edit workflow:
+// export → user edits in external editor → reimport.
+//
+// If WriteBack is set, it is called with the new content — allowing backends
+// (e.g. KeePass) to supply their own persistence logic. Otherwise, the default
+// geheim path is used: encrypt and git-stage via Commit.
 func (d *Data) ReimportAfterExport(ctx context.Context) error {
 	content, err := os.ReadFile(d.ExportedPath)
 	if err != nil {
@@ -80,6 +93,11 @@ func (d *Data) ReimportAfterExport(ctx context.Context) error {
 	}
 
 	d.Content = content
+
+	if d.WriteBack != nil {
+		return d.WriteBack(content)
+	}
+
 	return d.Commit(ctx, true)
 }
 
