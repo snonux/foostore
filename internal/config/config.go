@@ -22,8 +22,8 @@ const (
 
 // Config holds all application-wide configuration values.
 // JSON field names use snake_case to match the original geheim.rb Config::DEFAULTS keys.
-// The Backend field selects the storage backend: "geheim" (default, encrypted
-// .index/.data files in a git repo) or "keepass" (a .kdbx database file).
+// The Backend field selects the storage backend: "keepass" (default, a .kdbx
+// database file) or "geheim" (encrypted .index/.data files in a git repo).
 type Config struct {
 	DataDir           string   `json:"data_dir"`
 	ExportDir         string   `json:"export_dir"`
@@ -36,10 +36,10 @@ type Config struct {
 	MacOSClipboardCmd string   `json:"macos_clipboard_cmd"`
 	SyncRepos         []string `json:"sync_repos"`
 
-	// Backend selects the storage backend: "geheim" (default) or "keepass".
+	// Backend selects the storage backend: "keepass" (default) or "geheim".
 	Backend string `json:"backend"`
 	// KDBXPath is the path to the KeePass .kdbx database file.
-	// Defaults to ~/Documents/Keepass/master to match migrate-kdbx defaults.
+	// Defaults to ~/Documents/Keepass/master.kdbx.
 	KDBXPath string `json:"kdbx_path"`
 	// KDBXKeyFile is the optional path to a KeePass key file.
 	// An empty value disables key file authentication.
@@ -115,12 +115,14 @@ func defaultConfigWithHome(home string) Config {
 		MacOSClipboardCmd: "pbcopy",
 		SyncRepos:         []string{"git1", "git2"},
 
-		// Backend defaults match the geheim (original) storage backend.
+		// Backend defaults to "keepass" so new users get the KeePass backend
+		// out of the box.  Existing geheim users must set backend="geheim" in
+		// ~/.config/foostore.json to keep their existing behaviour.
 		// KDBXPath and KDBXPassFile defaults mirror the migrate-kdbx command
 		// at internal/cli/migrate_kdbx.go so users who already use that command
 		// have zero additional configuration to provide.
-		Backend:      "geheim",
-		KDBXPath:     filepath.Join(home, "Documents", "Keepass", "master"),
+		Backend:      "keepass",
+		KDBXPath:     filepath.Join(home, "Documents", "Keepass", "master.kdbx"),
 		KDBXKeyFile:  "",
 		KDBXPassFile: filepath.Join(home, ".master.pass"),
 	}

@@ -874,7 +874,7 @@ func TestResolveBackend(t *testing.T) {
 	}{
 		{name: "flag wins", flagValue: "keepass", cfgValue: "geheim", want: "keepass"},
 		{name: "config when no flag", flagValue: "", cfgValue: "keepass", want: "keepass"},
-		{name: "default when both empty", flagValue: "", cfgValue: "", want: "geheim"},
+		{name: "default when both empty", flagValue: "", cfgValue: "", want: "keepass"},
 		{name: "flag overrides empty config", flagValue: "geheim", cfgValue: "", want: "geheim"},
 	}
 

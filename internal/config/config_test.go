@@ -296,8 +296,8 @@ func TestLoad_backendDefaults(t *testing.T) {
 	cfg := Load()
 
 	cases := []struct{ name, got, want string }{
-		{"Backend", cfg.Backend, "geheim"},
-		{"KDBXPath", cfg.KDBXPath, filepath.Join(dir, "Documents", "Keepass", "master")},
+		{"Backend", cfg.Backend, "keepass"},
+		{"KDBXPath", cfg.KDBXPath, filepath.Join(dir, "Documents", "Keepass", "master.kdbx")},
 		{"KDBXKeyFile", cfg.KDBXKeyFile, ""},
 		{"KDBXPassFile", cfg.KDBXPassFile, filepath.Join(dir, ".master.pass")},
 	}

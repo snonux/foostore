@@ -187,7 +187,9 @@ func newCLI(ctx context.Context, backendName, kdbxPath string) (*CLI, error) {
 }
 
 // resolveBackend returns the effective backend name given the flag override and
-// the config value.  flag takes precedence; empty strings fall back to "geheim".
+// the config value.  flag takes precedence; config value is used next; the
+// last-resort default is "keepass" (matching the config.defaultConfigWithHome
+// default so that the two sources of truth stay in sync).
 func resolveBackend(flagValue, cfgValue string) string {
 	if flagValue != "" {
 		return flagValue
@@ -195,7 +197,7 @@ func resolveBackend(flagValue, cfgValue string) string {
 	if cfgValue != "" {
 		return cfgValue
 	}
-	return "geheim"
+	return "keepass"
 }
 
 // buildBackend constructs the Backend and its associated Gitter based on
