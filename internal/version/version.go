@@ -2,4 +2,4 @@
 package version
 
 // Version is the current release version of foostore.
-const Version = "v0.5.3"
+const Version = "v0.6.0"
