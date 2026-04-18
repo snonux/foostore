@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -17,10 +16,14 @@ import (
 )
 
 func main() {
-	// -version prints the build version and exits immediately.
-	versionFlag := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
-	if *versionFlag {
+	args := os.Args[1:]
+
+	// Handle -version / --version before passing args to the CLI so that
+	// `foostore -version` exits early without initialising any backend.
+	// We check manually rather than using flag.Parse() because that package
+	// rejects unknown flags (e.g. --backend, --kdbx-path) before the CLI
+	// dispatcher gets a chance to handle them.
+	if len(args) == 1 && (args[0] == "-version" || args[0] == "--version") {
 		fmt.Println(version.Version)
 		os.Exit(0)
 	}
@@ -30,19 +33,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Capture the remaining arguments once so both New and Run receive the same
-	// slice.  New parses --backend from it to select the backend at init time;
-	// Run strips --backend before dispatching commands.
-	args := flag.Args()
-
+	// Pass all args to the CLI. New parses --backend and --kdbx-path from them
+	// to select the backend at init time; Run strips those flags before dispatch.
 	c, err := cli.New(ctx, args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL %v\n", err)
 		os.Exit(3)
 	}
 
-	// flag.Args() returns arguments after flags, so flag-aware invocations
-	// like `foostore -version` work while plain `foostore cat foo` still passes
-	// all args through unchanged.
 	os.Exit(c.Run(ctx, args))
 }
