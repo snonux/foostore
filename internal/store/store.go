@@ -2,24 +2,29 @@
 // It mirrors the Geheim class from the Ruby reference (geheim.rb lines 341-549),
 // providing add/import/remove/search/export operations over the encrypted file pairs
 // (.index + .data) stored in cfg.DataDir.
+//
+// The package is split into focused files:
+//   - store.go        — Store type, constructor, walk/search (core business logic)
+//   - store_crud.go   — add/import/remove/buildPair (mutation operations)
+//   - store_picker.go — fzf/picker types, Fzf/FzfInteractive, key parsing
+//   - store_shred.go  — ShredFile, ShredAllExported (secure deletion)
+//   - data.go         — Data struct: encrypt/decrypt/export/reimport
+//   - index.go        — Index struct: load, commit, remove, sort
+//   - dependencies.go — Encryptor and Committer interfaces
 package store
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
 	"codeberg.org/snonux/foostore/internal/config"
-	"codeberg.org/snonux/foostore/internal/picker"
 )
 
 // Action describes what to do with each matching secret during a Search call.
@@ -34,24 +39,6 @@ const (
 	ActionOpen                     // export then open with OS viewer
 	ActionEdit                     // export, edit in external editor, reimport
 )
-
-// PickerAction describes the action requested from the interactive fzf picker.
-type PickerAction string
-
-const (
-	PickerSelect PickerAction = "select"
-	PickerCat    PickerAction = "cat"
-	PickerPaste  PickerAction = "paste"
-	PickerOpen   PickerAction = "open"
-	PickerEdit   PickerAction = "edit"
-)
-
-// PickerResult is the selected description plus the desired action from fzf.
-// Description is empty when the picker was cancelled.
-type PickerResult struct {
-	Description string
-	Action      PickerAction
-}
 
 // Store provides all secret-store operations.
 // regexCache avoids recompiling the same search-term regexp on every WalkIndexes call.
@@ -274,289 +261,4 @@ func (s *Store) actionExport(ctx context.Context, idx *Index, fullPath bool) err
 		destFile = filepath.Base(idx.Description)
 	}
 	return d.Export(ctx, s.cfg.ExportDir, destFile)
-}
-
-// Fzf launches fzf and returns only the selected description for compatibility
-// with callers that do not care about picker action keys.
-func (s *Store) Fzf(ctx context.Context) (string, error) {
-	result, err := s.FzfInteractive(ctx)
-	if err != nil {
-		return "", err
-	}
-	return result.Description, nil
-}
-
-// FzfInteractive launches fzf with helper bars, preview metadata, and action
-// key bindings, then returns both the selected description and action.
-func (s *Store) FzfInteractive(ctx context.Context) (PickerResult, error) {
-	var indexes IndexSlice
-	if err := s.WalkIndexes(ctx, "", func(idx *Index) error {
-		indexes = append(indexes, idx)
-		return nil
-	}); err != nil {
-		return PickerResult{}, err
-	}
-	if len(indexes) == 0 {
-		return PickerResult{}, nil
-	}
-
-	sort.Sort(indexes)
-	entries := make([]picker.Entry, 0, len(indexes))
-	for i, idx := range indexes {
-		kind := "TEXT"
-		if idx.IsBinary() {
-			kind = "BINARY"
-		}
-		hashSuffix := ""
-		if len(idx.Hash) >= 63 {
-			hashSuffix = idx.Hash[53:63]
-		}
-		entries = append(entries, picker.Entry{
-			RowID:       i + 1,
-			Description: idx.Description,
-			Kind:        kind,
-			HashSuffix:  hashSuffix,
-		})
-	}
-
-	return runFzfInteractive(ctx, entries)
-}
-
-func runFzfInteractive(ctx context.Context, entries []picker.Entry) (PickerResult, error) {
-	selection, err := picker.Run(ctx, entries)
-	if err != nil {
-		return PickerResult{}, err
-	}
-
-	action, ok := parsePickerAction(selection.Key)
-	if !ok {
-		return PickerResult{}, nil
-	}
-	if selection.Description == "" {
-		return PickerResult{}, nil
-	}
-
-	return PickerResult{
-		Description: selection.Description,
-		Action:      action,
-	}, nil
-}
-
-func buildFzfArgs(entryCount int) []string {
-	return picker.BuildArgs(
-		entryCount,
-		os.Getenv("FOOSTORE_TUI_THEME"),
-		os.Getenv("FOOSTORE_FZF_OPTS"),
-	)
-}
-
-func pickerColorTheme(theme string) string {
-	return picker.ColorTheme(theme)
-}
-
-func parsePickerResult(output string, idToDescription map[string]string) PickerResult {
-	selection := picker.ParseSelection(output, idToDescription)
-	action, ok := parsePickerAction(selection.Key)
-	if !ok || selection.Description == "" {
-		return PickerResult{}
-	}
-	return PickerResult{
-		Description: selection.Description,
-		Action:      action,
-	}
-}
-
-func parsePickerAction(keyLine string) (PickerAction, bool) {
-	switch strings.TrimSpace(keyLine) {
-	case "", "enter":
-		return PickerSelect, true
-	case "ctrl-t", "alt-t":
-		return PickerCat, true
-	case "ctrl-y", "alt-y":
-		return PickerPaste, true
-	case "ctrl-o", "alt-o":
-		return PickerOpen, true
-	case "ctrl-e", "alt-e":
-		return PickerEdit, true
-	default:
-		return "", false
-	}
-}
-
-// Add stores a new secret with the given description and plaintext data.
-// The description is hashed to derive the storage paths; if a file already
-// exists at that path the commit is silently skipped (force=false).
-func (s *Store) Add(ctx context.Context, description, data string) error {
-	hash := s.HashPath(description)
-	idx, dataObj := s.buildPair(description, hash)
-	dataObj.Content = []byte(data)
-
-	if err := dataObj.Commit(ctx, false); err != nil {
-		return fmt.Errorf("committing data for %q: %w", description, err)
-	}
-	if err := idx.CommitIndex(ctx, s.cipher, s.git, false); err != nil {
-		return fmt.Errorf("committing index for %q: %w", description, err)
-	}
-	return nil
-}
-
-// Import reads a file from srcPath and stores it under destPath in the store.
-// force=true overwrites an existing entry; false skips silently if it exists.
-func (s *Store) Import(ctx context.Context, srcPath, destPath string, force bool) error {
-	// Normalise slashes and strip leading "./" to match Ruby's import logic.
-	srcPath = strings.ReplaceAll(srcPath, "//", "/")
-	srcPath = strings.TrimPrefix(srcPath, "./")
-
-	content, err := os.ReadFile(srcPath)
-	if err != nil {
-		return fmt.Errorf("reading source file %q: %w", srcPath, err)
-	}
-
-	hash := s.HashPath(destPath)
-	idx, dataObj := s.buildPair(destPath, hash)
-	dataObj.Content = content
-
-	if err := dataObj.Commit(ctx, force); err != nil {
-		return fmt.Errorf("committing data for %q: %w", destPath, err)
-	}
-	if err := idx.CommitIndex(ctx, s.cipher, s.git, force); err != nil {
-		return fmt.Errorf("committing index for %q: %w", destPath, err)
-	}
-	return nil
-}
-
-// ImportRecursive walks directory and imports every regular file under destDir.
-// The description for each file is its path relative to the source directory.
-// Note: the Ruby import_recursive flattens subdirectories to basename in the
-// hash/storage path while preserving the full relative path only in the
-// description. Go preserves the full subpath in both description and hash path.
-// The compatibility verification task (355) will surface any impact on live data.
-func (s *Store) ImportRecursive(ctx context.Context, directory, destDir string) error {
-	return filepath.WalkDir(directory, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		// Derive the destination path from the file's position inside directory.
-		relFile := strings.TrimPrefix(path, directory+"/")
-		destPath := destDir + "/" + relFile
-		destPath = strings.ReplaceAll(destPath, "//", "/")
-
-		return s.Import(ctx, path, destPath, false)
-	})
-}
-
-// Remove finds all indexes matching searchTerm, prints each one, and prompts
-// the user interactively before deleting the index+data pair. Mirrors Ruby's rm.
-// Pass os.Stdin as the reader for interactive use; a strings.Reader in tests.
-func (s *Store) Remove(ctx context.Context, searchTerm string, input io.Reader) error {
-	var indexes IndexSlice
-	if err := s.WalkIndexes(ctx, searchTerm, func(idx *Index) error {
-		indexes = append(indexes, idx)
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	sort.Sort(indexes)
-
-	scanner := bufio.NewScanner(input)
-	for _, idx := range indexes {
-		if err := s.confirmAndRemove(ctx, idx, scanner); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// confirmAndRemove prompts the user to confirm deletion of a single entry,
-// then removes both the .data and .index files via git rm on confirmation.
-func (s *Store) confirmAndRemove(ctx context.Context, idx *Index, scanner *bufio.Scanner) error {
-	for {
-		fmt.Print(idx.String())
-		fmt.Print("You really want to delete this? (y/n): ")
-
-		if !scanner.Scan() {
-			return nil
-		}
-		switch strings.TrimSpace(scanner.Text()) {
-		case "y":
-			dataPath := filepath.Join(s.cfg.DataDir, idx.DataFile)
-			d := &Data{DataPath: dataPath}
-			if err := d.Remove(ctx, s.git); err != nil {
-				return fmt.Errorf("removing data file: %w", err)
-			}
-			if err := idx.Remove(ctx, s.git); err != nil {
-				return fmt.Errorf("removing index file: %w", err)
-			}
-			return nil
-		case "n":
-			return nil
-		}
-		// Any other input: loop and ask again.
-	}
-}
-
-// ShredAllExported removes (shreds) every regular file in cfg.ExportDir.
-// Uses GNU shred when available; falls back to "rm -Pfv" otherwise.
-// Mirrors Ruby's shred_all_exported: iterates all files and returns the last
-// non-nil error so that as many files as possible are shredded even on failure.
-func (s *Store) ShredAllExported(ctx context.Context) error {
-	entries, err := filepath.Glob(filepath.Join(s.cfg.ExportDir, "*"))
-	if err != nil {
-		return fmt.Errorf("listing export dir: %w", err)
-	}
-
-	var lastErr error
-	for _, entry := range entries {
-		info, err := os.Stat(entry)
-		if err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		if err := ShredFile(ctx, entry); err != nil {
-			// Record the error but keep shredding — security demands best-effort
-			// destruction of all exported secrets even if one fails.
-			lastErr = err
-		}
-	}
-	return lastErr
-}
-
-// ShredFile destroys a single file using shred(1) if available, or rm -Pfv.
-// This mirrors Ruby's Geheim#shred_file method.
-func ShredFile(ctx context.Context, filePath string) error {
-	if _, err := exec.LookPath("shred"); err == nil {
-		cmd := exec.CommandContext(ctx, "shred", "-vu", filePath)
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
-		return cmd.Run()
-	}
-	cmd := exec.CommandContext(ctx, "rm", "-Pfv", filePath)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	return cmd.Run()
-}
-
-// buildPair constructs an Index and Data struct pair for the given description
-// and pre-computed hash path. Both structs share the same derived paths.
-func (s *Store) buildPair(description, hash string) (*Index, *Data) {
-	indexPath := filepath.Join(s.cfg.DataDir, hash+".index")
-	dataPath := filepath.Join(s.cfg.DataDir, hash+".data")
-	// filepath.Base of the hash gives the final path component (the filename stem).
-	hashBase := filepath.Base(hash)
-
-	idx := &Index{
-		Description: description,
-		DataFile:    hash + ".data",
-		IndexPath:   indexPath,
-		Hash:        hashBase,
-	}
-	dataObj := &Data{
-		DataPath:  dataPath,
-		encryptor: s.cipher,
-		committer: s.git,
-	}
-	return idx, dataObj
 }
