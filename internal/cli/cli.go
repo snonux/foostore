@@ -22,7 +22,6 @@ import (
 	"codeberg.org/snonux/foostore/internal/backend"
 	"codeberg.org/snonux/foostore/internal/clipboard"
 	"codeberg.org/snonux/foostore/internal/config"
-	"codeberg.org/snonux/foostore/internal/git"
 	"codeberg.org/snonux/foostore/internal/shell"
 	"codeberg.org/snonux/foostore/internal/store"
 )
@@ -59,10 +58,11 @@ var SearchActions = map[string]store.Action{
 // backend is *store.Store, which satisfies Backend via the compile-time check
 // in internal/backend/backend.go.
 //
-// g is declared as git.Gitter (interface) rather than *git.Git so that the
-// keepass backend can supply a git.NoOp when the kdbx file lives outside a git
-// repository. Dispatch code requires no nil checks; it always calls through the
-// interface regardless of whether real git operations or no-ops are performed.
+// g is declared as Gitter (defined in git.go in this package) rather than
+// *git.Git so that the keepass backend can supply a *git.NoOp when the kdbx
+// file lives outside a git repository. Dispatch code requires no nil checks;
+// it always calls through the interface regardless of whether real git
+// operations or no-ops are performed.
 //
 // effectiveBackend is the resolved backend name (after applying the --backend
 // flag override on top of cfg.Backend).  Guards such as cmdMigrateKDBX use
@@ -70,7 +70,7 @@ var SearchActions = map[string]store.Action{
 type CLI struct {
 	cfg              *config.Config
 	st               backend.Backend
-	g                git.Gitter // real *git.Git or *git.NoOp when kdbx is outside a repo
+	g                Gitter // real *git.Git or *git.NoOp when kdbx is outside a repo
 	clip             *clipboard.Clipboard
 	sh               *shell.Shell
 	openKDBX         func(string, string) (KDBXStore, error)

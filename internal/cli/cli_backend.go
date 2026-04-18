@@ -38,7 +38,7 @@ func resolveBackend(flagValue, cfgValue string) string {
 // buildBackend constructs the Backend and its associated Gitter based on
 // effectiveBackend ("geheim" or "keepass").  Returns the Backend and git client
 // so the caller can wire them into the CLI struct.
-func buildBackend(ctx context.Context, cfg *config.Config, effectiveBackend string) (backend.Backend, git.Gitter, error) {
+func buildBackend(ctx context.Context, cfg *config.Config, effectiveBackend string) (backend.Backend, Gitter, error) {
 	switch effectiveBackend {
 	case "keepass":
 		return buildKeepassBackend(ctx, cfg)
@@ -50,7 +50,7 @@ func buildBackend(ctx context.Context, cfg *config.Config, effectiveBackend stri
 // buildGeheimBackend initialises the original AES-encrypted geheim backend:
 // reads the PIN, builds the cipher, creates a *store.Store, and points git at
 // cfg.DataDir via buildGeheimGit.
-func buildGeheimBackend(cfg *config.Config) (backend.Backend, git.Gitter, error) {
+func buildGeheimBackend(cfg *config.Config) (backend.Backend, Gitter, error) {
 	pin, err := readPIN()
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading PIN: %w", err)
@@ -75,7 +75,7 @@ func buildGeheimBackend(cfg *config.Config) (backend.Backend, git.Gitter, error)
 // directory is always a git repository (it is the store itself), so a real
 // git client is always appropriate here — unlike the keepass backend which
 // may live outside a repo and needs a NoOp fallback.
-func buildGeheimGit(cfg *config.Config) git.Gitter {
+func buildGeheimGit(cfg *config.Config) Gitter {
 	return git.New(cfg.DataDir)
 }
 
@@ -89,7 +89,7 @@ func buildGeheimGit(cfg *config.Config) git.Gitter {
 // repository, a *git.NoOp is returned instead — its methods print an
 // informational message ("kdbx file is not in a git repo; skipping") and return
 // nil, keeping the UX transparent without crashing.
-func buildKeepassBackend(ctx context.Context, cfg *config.Config) (backend.Backend, git.Gitter, error) {
+func buildKeepassBackend(ctx context.Context, cfg *config.Config) (backend.Backend, Gitter, error) {
 	passphrase, err := readKeepassPassphrase(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading keepass passphrase: %w", err)
@@ -113,7 +113,7 @@ func buildKeepassBackend(ctx context.Context, cfg *config.Config) (backend.Backe
 // the kdbx file.  When the directory is a git repository, a real *git.Git is
 // returned.  Otherwise, a *git.NoOp is returned so that callers receive
 // informational messages rather than errors when running git commands.
-func buildKeepassGit(kdbxPath string) git.Gitter {
+func buildKeepassGit(kdbxPath string) Gitter {
 	kdbxDir := filepath.Dir(kdbxPath)
 	if git.IsGitRepo(kdbxDir) {
 		return git.New(kdbxDir)

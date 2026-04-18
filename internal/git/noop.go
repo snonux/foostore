@@ -9,7 +9,7 @@ import (
 // because the kdbx file is not inside a git repository.
 const noOpMessage = "kdbx file is not in a git repo; skipping"
 
-// NoOp is a Gitter implementation whose every method prints an informational
+// NoOp is a no-op git client whose every method prints an informational
 // message and returns nil. It is used when the KeePass database file lives
 // outside of a git repository so that sync/status/commit/reset commands remain
 // functional and transparent rather than crashing or returning errors.
@@ -17,10 +17,11 @@ const noOpMessage = "kdbx file is not in a git repo; skipping"
 // Keeping the no-op behaviour in its own type (rather than nil-checking in the
 // CLI dispatch) respects the Open/Closed Principle: the CLI is open for
 // extension (new backends, new git behaviours) without modification.
+//
+// NoOp satisfies the Gitter interface defined in internal/cli (the consumer),
+// not here in the producer — per Go best practice #6 from 100 Go Mistakes.
+// The compile-time assertion lives in internal/cli/git.go.
 type NoOp struct{}
-
-// Compile-time assertion: *NoOp must satisfy Gitter.
-var _ Gitter = (*NoOp)(nil)
 
 // NewNoOp returns a *NoOp that satisfies Gitter with all operations being
 // informational no-ops.

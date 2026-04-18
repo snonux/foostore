@@ -283,11 +283,14 @@ func TestIsGitRepo_outside(t *testing.T) {
 	}
 }
 
-// TestNoOp_satisfies_Gitter verifies that *git.NoOp compiles as a Gitter and
-// that all its methods return nil (no-op, no error) so they are safe to call
-// unconditionally from CLI dispatch.
-func TestNoOp_satisfies_Gitter(t *testing.T) {
-	var g git.Gitter = git.NewNoOp()
+// TestNoOp_methods verifies that all *git.NoOp methods return nil (no-op, no
+// error) so they are safe to call unconditionally from CLI dispatch.
+//
+// Note: the Gitter interface is defined in internal/cli (the consumer), not
+// here in internal/git (the producer), per Go best practice #6. The
+// compile-time assertion that *NoOp satisfies Gitter lives in internal/cli/git.go.
+func TestNoOp_methods(t *testing.T) {
+	g := git.NewNoOp()
 	ctx := context.Background()
 
 	table := []struct {
