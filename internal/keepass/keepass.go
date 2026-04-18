@@ -201,7 +201,9 @@ func (b *Backend) binaryData(ve *virtualEntry) (*store.Data, error) {
 // is intentionally absent — the closure only needs the description and db ref.
 func (b *Backend) makeWriteBack(description string) func([]byte) error {
 	return func(newContent []byte) error {
-		password, user, url, notes := parseContent(newContent)
+		// Convert []byte to string once here; parseContent accepts string to
+		// avoid a double conversion at its internal strings.Split call (mistake #40).
+		password, user, url, notes := parseContent(string(newContent))
 		groupPath, title, err := SplitDescriptionPath(description)
 		if err != nil {
 			return fmt.Errorf("keepass writeback: %w", err)

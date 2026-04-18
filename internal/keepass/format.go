@@ -5,6 +5,7 @@
 package keepass
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 )
@@ -35,8 +36,12 @@ var (
 //	URL: <value>
 //	Notes:
 //	<notes lines>
+//
+// Uses bytes.Buffer rather than strings.Builder to avoid the final
+// []byte(builder.String()) allocation that would otherwise copy the result
+// (100 Go Mistakes #40: unnecessary string/byte conversions).
 func formatContent(password, user, url, notes string) []byte {
-	var b strings.Builder
+	var b bytes.Buffer
 	b.WriteString("Password: ")
 	b.WriteString(password)
 	b.WriteByte('\n')
@@ -53,7 +58,7 @@ func formatContent(password, user, url, notes string) []byte {
 			b.WriteByte('\n')
 		}
 	}
-	return []byte(b.String())
+	return b.Bytes()
 }
 
 // parseContent is the inverse of formatContent. It tolerates missing or
@@ -61,10 +66,16 @@ func formatContent(password, user, url, notes string) []byte {
 // before a "Notes:" header are matched against the password/user/url patterns;
 // everything after "Notes:" is collected verbatim.
 //
+// The parameter is a string rather than []byte so that callers which already
+// hold a string (the common case) pass it directly with no conversion. Callers
+// that hold a []byte perform a single explicit string(b) conversion at the call
+// site, making the conversion visible rather than hiding it inside this function
+// (100 Go Mistakes #40).
+//
 // This generalises extractPasswordFromContent from internal/cli/migrate_kdbx.go
 // to also handle User: and URL: fields.
-func parseContent(content []byte) (password, user, url, notes string) {
-	lines := strings.Split(string(content), "\n")
+func parseContent(content string) (password, user, url, notes string) {
+	lines := strings.Split(content, "\n")
 	inNotes := false
 	var notesLines []string
 

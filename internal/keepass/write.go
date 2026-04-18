@@ -30,7 +30,9 @@ func (b *Backend) addTextEntry(description, data string) error {
 	if err != nil {
 		return fmt.Errorf("keepass add: %w", err)
 	}
-	password, user, url, notes := parseContent([]byte(data))
+	// data is already a string; pass directly to avoid a redundant []byte
+	// allocation that parseContent would immediately convert back (mistake #40).
+	password, user, url, notes := parseContent(data)
 	g := EnsureGroup(b.root(), groupPath)
 	entry, _ := UpsertEntryByTitle(g, title)
 	SetEntryField(entry, "Title", title)
@@ -56,7 +58,26 @@ func (b *Backend) Import(ctx context.Context, srcPath, destPath string, force bo
 	if err != nil {
 		return fmt.Errorf("keepass import: reading %q: %w", srcPath, err)
 	}
-	return b.Add(ctx, destPath, string(content))
+	// importBytes keeps the file data as []byte throughout, avoiding a
+	// []byte→string→[]byte round-trip that would occur when routing through
+	// the public Add(string) API for attachment entries (mistake #40).
+	return b.importBytes(destPath, content)
+}
+
+// importBytes stores raw file bytes under destPath. It routes to either
+// addAttachment (for virtual attachment paths) or addTextEntry, preserving
+// the []byte so that attachment data never undergoes a redundant conversion.
+//
+// ctx is intentionally not threaded through to addAttachment or addTextEntry:
+// both are synchronous, purely in-memory operations (no I/O, no goroutines)
+// that complete without any blocking calls that could respect cancellation.
+func (b *Backend) importBytes(destPath string, content []byte) error {
+	if parentDesc, attachName, ok := b.isAttachmentPath(destPath); ok {
+		return b.addAttachment(parentDesc, attachName, content)
+	}
+	// Text entries parse the content as a string; a single conversion here
+	// is unavoidable because parseContent operates on strings for efficiency.
+	return b.addTextEntry(destPath, string(content))
 }
 
 // entryExists reports whether an entry with the given description already

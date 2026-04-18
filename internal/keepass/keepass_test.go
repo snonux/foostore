@@ -640,7 +640,8 @@ func TestSearchActionWithActionFn(t *testing.T) {
 	}
 	// Verify the password is extractable via parseContent (the actual paste path
 	// in the CLI would do this and send only the password to the clipboard).
-	pw, _, _, _ := parseContent(captured)
+	// parseContent accepts string; convert captured []byte once here.
+	pw, _, _, _ := parseContent(string(captured))
 	if pw != "secret" {
 		t.Errorf("parseContent from paste content: got password %q, want %q", pw, "secret")
 	}
@@ -840,7 +841,8 @@ func TestImportForce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadData after forced import: %v", err)
 	}
-	pw, _, _, _ := parseContent(d.Content)
+	// parseContent accepts string; d.Content is []byte so convert once.
+	pw, _, _, _ := parseContent(string(d.Content))
 	if pw != "replaced" {
 		t.Errorf("password after forced import = %q; want %q", pw, "replaced")
 	}
@@ -946,7 +948,8 @@ func TestFormatParseRoundtrip(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			content := formatContent(tc.password, tc.user, tc.url, tc.notes)
-			gotPw, gotUser, gotURL, gotNotes := parseContent(content)
+			// parseContent accepts string; formatContent returns []byte, so convert once.
+			gotPw, gotUser, gotURL, gotNotes := parseContent(string(content))
 			if gotPw != tc.password {
 				t.Errorf("password: got %q, want %q", gotPw, tc.password)
 			}
