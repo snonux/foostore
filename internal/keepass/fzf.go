@@ -20,6 +20,12 @@ func (b *Backend) Fzf(ctx context.Context) (string, error) {
 
 // FzfInteractive launches fzf with action key bindings and returns the
 // selected description plus the chosen action.
+//
+// Not covered by automated tests: requires an interactive TTY and the fzf
+// binary to be present — both are unavailable in CI. Coverage is provided by
+// manual testing and by the unit tests for buildPickerEntries and
+// parsePickerAction, which exercise the data-preparation and key-mapping logic
+// that surrounds the fzf call.
 func (b *Backend) FzfInteractive(ctx context.Context) (store.PickerResult, error) {
 	var indexes store.IndexSlice
 	if err := b.WalkIndexes(ctx, "", func(idx *store.Index) error {
