@@ -81,24 +81,26 @@ type CLI struct {
 
 // New initialises all runtime dependencies (config, PIN, cipher, store, git,
 // clipboard, shell) and returns a ready-to-use CLI.  argv (typically
-// os.Args[1:] after standard flags) is parsed for a --backend flag before
-// initialisation so the correct backend is instantiated from the start.
-// cmd/foostore/main.go calls New with a signal-cancellable context so that
-// long-running operations (fzf, external editors) are interrupted cleanly on
-// SIGINT/SIGTERM.
+// os.Args[1:] after standard flags) is parsed for --backend and --kdbx-path
+// flags before initialisation so the correct backend is instantiated from the
+// start.  cmd/foostore/main.go calls New with a signal-cancellable context so
+// that long-running operations (fzf, external editors) are interrupted cleanly
+// on SIGINT/SIGTERM.
 func New(ctx context.Context, argv []string) (*CLI, error) {
 	backendName, _ := parseBackendFlag(argv)
-	return newCLI(ctx, backendName)
+	kdbxPath, _ := parseKDBXPathFlag(argv)
+	return newCLI(ctx, backendName, kdbxPath)
 }
 
 // Run dispatches argv (typically os.Args[1:]) to the appropriate handler or
-// enters the interactive shell loop.  The --backend flag is stripped from argv
-// before dispatch because it was already consumed by New.  Returns an exit code
-// suitable for os.Exit.  The caller is responsible for calling sh.Close() when
-// done; cmd/foostore/main.go does this via defer.
+// enters the interactive shell loop.  The --backend and --kdbx-path flags are
+// stripped from argv before dispatch because they were already consumed by New.
+// Returns an exit code suitable for os.Exit.  The caller is responsible for
+// calling sh.Close() when done; cmd/foostore/main.go does this via defer.
 func (c *CLI) Run(ctx context.Context, argv []string) int {
 	defer c.sh.Close()
 	_, strippedArgv := parseBackendFlag(argv)
+	_, strippedArgv = parseKDBXPathFlag(strippedArgv)
 	return c.run(ctx, strippedArgv)
 }
 
@@ -110,8 +112,25 @@ func (c *CLI) Run(ctx context.Context, argv []string) int {
 // The equals form "--backend=VALUE" is NOT parsed and will be silently ignored
 // (treated as an unknown argument that propagates to the command dispatcher).
 func parseBackendFlag(argv []string) (string, []string) {
+	return parseFlagValue("--backend", argv)
+}
+
+// parseKDBXPathFlag scans argv for a "--kdbx-path VALUE" pair and returns the
+// path and the remaining argv with that pair removed.  Returns ("", argv) when
+// no --kdbx-path flag is present.  Overrides cfg.KDBXPath for the process
+// lifetime without modifying the config file.
+//
+// Note: only the space-separated form "--kdbx-path VALUE" is supported.
+func parseKDBXPathFlag(argv []string) (string, []string) {
+	return parseFlagValue("--kdbx-path", argv)
+}
+
+// parseFlagValue is the shared implementation for single-value flag extraction.
+// It scans argv for a "FLAG VALUE" pair, removes it, and returns the value and
+// the remaining argv.  Returns ("", argv) when the flag is absent.
+func parseFlagValue(flag string, argv []string) (string, []string) {
 	for i, arg := range argv {
-		if arg == "--backend" && i+1 < len(argv) {
+		if arg == flag && i+1 < len(argv) {
 			remaining := make([]string, 0, len(argv)-2)
 			remaining = append(remaining, argv[:i]...)
 			remaining = append(remaining, argv[i+2:]...)
@@ -124,10 +143,16 @@ func parseBackendFlag(argv []string) (string, []string) {
 // newCLI initialises all dependencies: config, PIN/passphrase, cipher or
 // keepass credentials, store or keepass backend, git, clipboard, and
 // interactive shell.  backendName overrides cfg.Backend when non-empty
-// (supplied from the --backend CLI flag); an empty string means "use
-// cfg.Backend".  Mirrors the Ruby CLI#initialize logic.
-func newCLI(ctx context.Context, backendName string) (*CLI, error) {
+// (supplied from the --backend CLI flag); kdbxPath overrides cfg.KDBXPath when
+// non-empty (supplied from the --kdbx-path CLI flag).  Empty strings mean "use
+// the config file value".  Mirrors the Ruby CLI#initialize logic.
+func newCLI(ctx context.Context, backendName, kdbxPath string) (*CLI, error) {
 	cfg := config.Load()
+
+	// Apply CLI flag overrides before building the backend.
+	if kdbxPath != "" {
+		cfg.KDBXPath = kdbxPath
+	}
 
 	// Resolve the effective backend: flag overrides config, config defaults to "geheim".
 	effectiveBackend := resolveBackend(backendName, cfg.Backend)
@@ -853,7 +878,12 @@ func externalEdit(ctx context.Context, exportDir, editCmd, file string) error {
 
 // printHelp prints a brief usage summary, mirroring the Ruby CLI#help output.
 func printHelp() {
-	logMsg(`ls
+	logMsg(`Global flags (must appear before the command):
+  --backend geheim|keepass   select backend (overrides config)
+  --kdbx-path PATH           path to .kdbx file (overrides config, keepass only)
+
+Commands:
+ls
 SEARCHTERM
 search SEARCHTERM
 cat SEARCHTERM

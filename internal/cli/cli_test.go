@@ -802,6 +802,66 @@ func TestParseBackendFlag(t *testing.T) {
 	}
 }
 
+// ---- parseKDBXPathFlag ------------------------------------------------------
+
+// TestParseKDBXPathFlag covers the --kdbx-path flag extraction.
+func TestParseKDBXPathFlag(t *testing.T) {
+	cases := []struct {
+		name     string
+		argv     []string
+		wantPath string
+		wantArgv []string
+	}{
+		{
+			name:     "no flag",
+			argv:     []string{"ls"},
+			wantPath: "",
+			wantArgv: []string{"ls"},
+		},
+		{
+			name:     "flag at start",
+			argv:     []string{"--kdbx-path", "/tmp/db.kdbx", "ls"},
+			wantPath: "/tmp/db.kdbx",
+			wantArgv: []string{"ls"},
+		},
+		{
+			name:     "flag at end",
+			argv:     []string{"cat", "foo", "--kdbx-path", "/home/user/db.kdbx"},
+			wantPath: "/home/user/db.kdbx",
+			wantArgv: []string{"cat", "foo"},
+		},
+		{
+			name:     "flag alone",
+			argv:     []string{"--kdbx-path", "/tmp/db.kdbx"},
+			wantPath: "/tmp/db.kdbx",
+			wantArgv: []string{},
+		},
+		{
+			name:     "flag without value (treated as no flag)",
+			argv:     []string{"--kdbx-path"},
+			wantPath: "",
+			wantArgv: []string{"--kdbx-path"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotPath, gotArgv := parseKDBXPathFlag(tc.argv)
+			if gotPath != tc.wantPath {
+				t.Errorf("path = %q; want %q", gotPath, tc.wantPath)
+			}
+			if len(gotArgv) != len(tc.wantArgv) {
+				t.Fatalf("argv len = %d; want %d (%v vs %v)", len(gotArgv), len(tc.wantArgv), gotArgv, tc.wantArgv)
+			}
+			for i := range gotArgv {
+				if gotArgv[i] != tc.wantArgv[i] {
+					t.Errorf("argv[%d] = %q; want %q", i, gotArgv[i], tc.wantArgv[i])
+				}
+			}
+		})
+	}
+}
+
 // ---- resolveBackend ---------------------------------------------------------
 
 // TestResolveBackend covers the flag-over-config priority logic.
