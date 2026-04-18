@@ -9,7 +9,8 @@
 //   - cli_backend.go  — backend factory (buildBackend, buildGeheimBackend, buildKeepassBackend, ...)
 //   - cli_dispatch.go — shell loop (shellLoop) and command dispatcher (dispatch, dispatchSimple, dispatchSearch)
 //   - cli_commands.go — concrete command handlers (cmdAdd, cmdImport, …) and action-function factories
-//   - migrate_kdbx.go — migrate-kdbx command and its helpers
+//   - cli_paths.go    — shared path utilities (readPasswordFile, resolveHomeDir, expandHome)
+//   - migrate_kdbx.go — thin CLI handler for migrate-kdbx; delegates logic to internal/migrate
 package cli
 
 import (
@@ -22,6 +23,7 @@ import (
 	"codeberg.org/snonux/foostore/internal/backend"
 	"codeberg.org/snonux/foostore/internal/clipboard"
 	"codeberg.org/snonux/foostore/internal/config"
+	"codeberg.org/snonux/foostore/internal/migrate"
 	"codeberg.org/snonux/foostore/internal/shell"
 	"codeberg.org/snonux/foostore/internal/store"
 )
@@ -73,7 +75,7 @@ type CLI struct {
 	g                Gitter // real *git.Git or *git.NoOp when kdbx is outside a repo
 	clip             *clipboard.Clipboard
 	sh               *shell.Shell
-	openKDBX         func(string, string) (KDBXStore, error)
+	openKDBX         func(string, string) (migrate.KDBXStore, error)
 	now              func() time.Time
 	lastResult       string // most recent search result description
 	effectiveBackend string // resolved backend: --backend flag > cfg.Backend > "geheim"
@@ -133,7 +135,7 @@ func newCLI(ctx context.Context, backendName, kdbxPath string) (*CLI, error) {
 		st:               st,
 		g:                g,
 		clip:             clip,
-		openKDBX:         OpenKDBXStore,
+		openKDBX:         migrate.OpenKDBXStore,
 		now:              time.Now,
 		effectiveBackend: effectiveBackend,
 	}

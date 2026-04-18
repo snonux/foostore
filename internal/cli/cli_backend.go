@@ -147,7 +147,7 @@ func readKeepassPassphrase(cfg *config.Config) (string, error) {
 	}
 
 	// 2. KDBXPassFile — a file containing the password (trimmed of newlines).
-	// readPasswordFile is defined in migrate_kdbx.go and shared here.
+	// readPasswordFile is defined in cli_paths.go and shared across this package.
 	if cfg.KDBXPassFile != "" {
 		pass, err := readPasswordFile(cfg.KDBXPassFile)
 		if err != nil {

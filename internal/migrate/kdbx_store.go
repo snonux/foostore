@@ -1,4 +1,7 @@
-package cli
+// Package migrate provides the geheim→KeePass migration logic for foostore.
+// The CLI layer (internal/cli) is responsible only for flag parsing and exit
+// codes; all migration business logic lives here.
+package migrate
 
 import (
 	"fmt"
@@ -9,19 +12,24 @@ import (
 	"codeberg.org/snonux/foostore/internal/keepass"
 )
 
-// KDBXStore is the minimal interface needed by migrate-kdbx.
+// KDBXStore is the minimal interface needed by the migrator to write entries
+// into a KeePass database. Keeping it small satisfies the Interface Segregation
+// Principle and allows easy substitution in tests.
 type KDBXStore interface {
 	UpsertTextEntry(groupPath []string, title, password, notes string) (overwrote bool, err error)
 	UpsertBinaryEntry(groupPath []string, title, filename string, content []byte) (overwrote bool, err error)
 	Save() error
 }
 
+// kdbxStore wraps an in-memory gokeepasslib.Database and the file path it will
+// be written to on Save().
 type kdbxStore struct {
 	path string
 	db   *gokeepasslib.Database
 }
 
-// OpenKDBXStore opens an existing KDBX database using password credentials.
+// OpenKDBXStore opens an existing KDBX database using password credentials,
+// decodes and unlocks protected entries, and returns a ready-to-use KDBXStore.
 func OpenKDBXStore(dbPath, password string) (KDBXStore, error) {
 	f, err := os.Open(dbPath)
 	if err != nil {
@@ -38,6 +46,13 @@ func OpenKDBXStore(dbPath, password string) (KDBXStore, error) {
 		return nil, fmt.Errorf("unlocking kdbx %q: %w", dbPath, err)
 	}
 
+	ensureRootGroup(db)
+	return &kdbxStore{path: dbPath, db: db}, nil
+}
+
+// ensureRootGroup guarantees that the database has a valid Content, Root, and
+// at least one top-level Group so callers never have to nil-check these fields.
+func ensureRootGroup(db *gokeepasslib.Database) {
 	if db.Content == nil {
 		db.Content = gokeepasslib.NewContent()
 	}
@@ -49,16 +64,11 @@ func OpenKDBXStore(dbPath, password string) (KDBXStore, error) {
 		root.Name = "Root"
 		db.Content.Root.Groups = append(db.Content.Root.Groups, root)
 	}
-
-	return &kdbxStore{
-		path: dbPath,
-		db:   db,
-	}, nil
 }
 
 // UpsertTextEntry creates or updates a text entry in groupPath with the given
 // title, password, and notes. Delegates field manipulation to keepass.SetEntryField
-// and group navigation to keepass.EnsureGroup to avoid duplication.
+// and group navigation to keepass.EnsureGroup.
 func (s *kdbxStore) UpsertTextEntry(groupPath []string, title, password, notes string) (bool, error) {
 	g := keepass.EnsureGroup(&s.db.Content.Root.Groups[0], groupPath)
 	entry, overwrote := keepass.UpsertEntryByTitle(g, title)
@@ -70,7 +80,7 @@ func (s *kdbxStore) UpsertTextEntry(groupPath []string, title, password, notes s
 
 // UpsertBinaryEntry creates or updates a binary attachment entry in groupPath.
 // Delegates field manipulation to keepass.SetEntryField and group navigation
-// to keepass.EnsureGroup to avoid duplication.
+// to keepass.EnsureGroup.
 func (s *kdbxStore) UpsertBinaryEntry(groupPath []string, title, filename string, content []byte) (bool, error) {
 	g := keepass.EnsureGroup(&s.db.Content.Root.Groups[0], groupPath)
 	entry, overwrote := keepass.UpsertEntryByTitle(g, title)
@@ -86,7 +96,7 @@ func (s *kdbxStore) UpsertBinaryEntry(groupPath []string, title, filename string
 
 // Save locks protected entries and atomically writes the database to disk.
 // Delegates the tmp→encode→rename sequence to keepass.AtomicSave to avoid
-// duplicating that logic here (keepass.Backend.save() uses the same helper).
+// duplicating that logic here.
 func (s *kdbxStore) Save() error {
 	if err := s.db.LockProtectedEntries(); err != nil {
 		return fmt.Errorf("locking kdbx entries: %w", err)

@@ -18,6 +18,7 @@ import (
 	"codeberg.org/snonux/foostore/internal/config"
 	"codeberg.org/snonux/foostore/internal/crypto"
 	"codeberg.org/snonux/foostore/internal/git"
+	"codeberg.org/snonux/foostore/internal/migrate"
 	"codeberg.org/snonux/foostore/internal/shell"
 	"codeberg.org/snonux/foostore/internal/store"
 )
@@ -700,7 +701,7 @@ func TestDispatch_migrateKDBX_writesBinaryAndSavesKDBX(t *testing.T) {
 	fake := &fakeKDBXStore{
 		overwrites: map[string]bool{"notes": true},
 	}
-	c.openKDBX = func(path, password string) (KDBXStore, error) {
+	c.openKDBX = func(path, password string) (migrate.KDBXStore, error) {
 		if path != dbPath {
 			t.Fatalf("openKDBX path = %q; want %q", path, dbPath)
 		}
