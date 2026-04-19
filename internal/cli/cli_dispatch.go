@@ -191,6 +191,10 @@ func (c *CLI) dispatchSimple(ctx context.Context, argv []string, cmd string) (in
 			fmt.Println(name)
 		}
 		return 0, "", true
+	case "fish":
+		// Print the fish shell integration script to stdout so users can source it:
+		//   foostore fish | source
+		return c.cmdFish(os.Stdout), "", true
 	case "help":
 		printHelp()
 		return 0, "", true

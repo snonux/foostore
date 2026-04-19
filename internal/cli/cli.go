@@ -9,6 +9,7 @@
 //   - cli_backend.go  — backend factory (buildBackend, buildGeheimBackend, buildKeepassBackend, ...)
 //   - cli_dispatch.go — shell loop (shellLoop) and command dispatcher (dispatch, dispatchSimple, dispatchSearch)
 //   - cli_commands.go — concrete command handlers (cmdAdd, cmdImport, …) and action-function factories
+//   - cli_fish.go     — fish subcommand: generates fish shell integration script (completions + ge wrapper)
 //   - cli_paths.go    — shared path utilities (readPasswordFile, resolveHomeDir, expandHome)
 //   - migrate_kdbx.go — thin CLI handler for migrate-kdbx; delegates logic to internal/migrate
 package cli
@@ -33,7 +34,7 @@ import (
 var CommandList = []string{
 	"ls", "search", "cat", "paste", "get", "add", "export", "pathexport",
 	"open", "edit", "import", "import_r", "rm", "sync", "status", "commit",
-	"reset", "fullcommit", "shred", "migrate-kdbx", "version", "commands", "help", "shell",
+	"reset", "fullcommit", "shred", "migrate-kdbx", "fish", "version", "commands", "help", "shell",
 	"exit", "last",
 }
 
@@ -215,6 +216,7 @@ rm SEARCHTERM
 sync|status|commit|reset|fullcommit
 shred
 migrate-kdbx [--db PATH] [--pass-file PATH] [--binary-out PATH] [--dry-run]
+fish
 version
 commands
 help

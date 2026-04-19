@@ -32,7 +32,11 @@ Table-driven unit tests exist for all internal packages.
 ## Fish shell integration
 
 ```bash
-./install-fish.sh          # installs completions/foostore.fish and completions/ge.fish
+# Print the fish integration script and source it in the current session:
+foostore fish | source
+
+# Or add to ~/.config/fish/config.fish for permanent activation:
+foostore fish | source   # add this line to the file
 ```
 
 ## Configuration

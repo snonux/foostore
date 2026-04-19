@@ -26,12 +26,11 @@ Tab completion and a `ge` shortcut wrapper are provided for the [fish shell](htt
 
 ### Install
 
-```bash
-./install-fish.sh
-exec fish
-```
+Source the integration script once to activate it for the current session, or add the line to `~/.config/fish/config.fish` for permanent activation:
 
-This copies `completions/foostore.fish` to `~/.config/fish/completions/` and `completions/ge.fish` to `~/.config/fish/functions/`.
+```fish
+foostore fish | source
+```
 
 ### Usage
 
@@ -57,8 +56,6 @@ set -x PIN yourpin   # enable entry completion for this session
 ge <TAB>
 set -e PIN           # clear when done
 ```
-
-See `FISH_INTEGRATION.md` for more details.
 
 ## Interactive Picker UX
 
