@@ -28,14 +28,14 @@ func (c *CLI) cmdFish(stdout io.Writer) int {
 	if err != nil {
 		binaryPath = "foostore"
 	}
-	script := fishIntegrationScript(binaryPath)
+	script := FishIntegrationScript(binaryPath)
 	if _, err := io.WriteString(stdout, script); err != nil {
 		return 1
 	}
 	return 0
 }
 
-// fishIntegrationScript returns the complete fish shell integration script for
+// FishIntegrationScript returns the complete fish shell integration script for
 // the given binary path.  The script combines the foostore completion rules and
 // the ge wrapper function so users need only source a single output:
 //
@@ -44,7 +44,13 @@ func (c *CLI) cmdFish(stdout io.Writer) int {
 // The binary name is extracted from binaryPath (basename without path) and used
 // wherever "foostore" appears in complete directives, making the script
 // correct even when the binary is renamed.
-func fishIntegrationScript(binaryPath string) string {
+//
+// This function is exported so cmd/foostore/main.go can short-circuit the
+// "fish" subcommand before constructing a CLI — the script is purely static
+// and needs no backend, cipher, store, git, or shell initialisation.  Avoiding
+// that init shaves ~1.8s (KeePass Argon2 KDF) off every interactive fish
+// shell startup that sources `foostore fish`.
+func FishIntegrationScript(binaryPath string) string {
 	bin := filepath.Base(binaryPath)
 	var b strings.Builder
 

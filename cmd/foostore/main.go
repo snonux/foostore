@@ -28,6 +28,20 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Short-circuit the "fish" subcommand: it emits a purely static shell
+	// integration script and needs no backend, cipher, store, git, or shell
+	// initialisation.  Skipping cli.New avoids the KeePass Argon2 KDF cost
+	// (~1.8s), which makes every interactive fish shell startup that sources
+	// `foostore fish | source` correspondingly faster.
+	if len(args) == 1 && args[0] == "fish" {
+		binaryPath, err := os.Executable()
+		if err != nil {
+			binaryPath = "foostore"
+		}
+		fmt.Print(cli.FishIntegrationScript(binaryPath))
+		os.Exit(0)
+	}
+
 	// Cancel the context on SIGINT or SIGTERM so that long-running operations
 	// (fzf, external editors) terminate gracefully rather than being killed hard.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
