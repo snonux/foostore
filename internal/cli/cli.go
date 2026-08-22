@@ -21,12 +21,12 @@ import (
 	"strings"
 	"time"
 
-	"codeberg.org/snonux/foostore/internal/backend"
-	"codeberg.org/snonux/foostore/internal/clipboard"
-	"codeberg.org/snonux/foostore/internal/config"
-	"codeberg.org/snonux/foostore/internal/migrate"
-	"codeberg.org/snonux/foostore/internal/shell"
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/backend"
+	"github.com/snonux/foostore/internal/clipboard"
+	"github.com/snonux/foostore/internal/config"
+	"github.com/snonux/foostore/internal/migrate"
+	"github.com/snonux/foostore/internal/shell"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // CommandList is the canonical list of supported commands, ordered to match

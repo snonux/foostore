@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"codeberg.org/snonux/foostore/internal/picker"
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/picker"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // Fzf launches fzf and returns only the selected description.

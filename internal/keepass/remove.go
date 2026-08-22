@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // Remove finds all indexes matching searchTerm and prompts before deleting.

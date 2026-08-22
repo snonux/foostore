@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"codeberg.org/snonux/foostore/internal/keepass"
+	"github.com/snonux/foostore/internal/keepass"
 )
 
 func TestSplitDescriptionPath(t *testing.T) {

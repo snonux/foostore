@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"codeberg.org/snonux/foostore/internal/migrate"
+	"github.com/snonux/foostore/internal/migrate"
 )
 
 // migrateKDBXOptions holds the parsed CLI flags for the migrate-kdbx command.

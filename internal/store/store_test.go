@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"codeberg.org/snonux/foostore/internal/config"
-	"codeberg.org/snonux/foostore/internal/crypto"
-	"codeberg.org/snonux/foostore/internal/git"
+	"github.com/snonux/foostore/internal/config"
+	"github.com/snonux/foostore/internal/crypto"
+	"github.com/snonux/foostore/internal/git"
 )
 
 // --- test helpers ------------------------------------------------------------

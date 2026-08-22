@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"codeberg.org/snonux/foostore/internal/migrate"
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/migrate"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // ---- ExtractPasswordFromContent tests ----------------------------------------

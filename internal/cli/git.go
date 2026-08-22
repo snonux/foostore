@@ -15,7 +15,7 @@ package cli
 import (
 	"context"
 
-	"codeberg.org/snonux/foostore/internal/git"
+	"github.com/snonux/foostore/internal/git"
 )
 
 // Gitter abstracts git operations so that the CLI dispatch logic works

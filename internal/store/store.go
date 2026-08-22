@@ -24,7 +24,7 @@ import (
 	"sort"
 	"strings"
 
-	"codeberg.org/snonux/foostore/internal/config"
+	"github.com/snonux/foostore/internal/config"
 )
 
 // Action describes what to do with each matching secret during a Search call.

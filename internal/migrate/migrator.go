@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"codeberg.org/snonux/foostore/internal/keepass"
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/keepass"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // Options holds the resolved parameters for a geheim→KeePass migration run.

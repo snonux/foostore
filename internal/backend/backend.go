@@ -13,7 +13,7 @@ import (
 	"context"
 	"io"
 
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // Backend is the narrow interface that the CLI calls on a secret store.

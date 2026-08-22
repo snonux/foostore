@@ -20,7 +20,7 @@ import (
 	"runtime"
 	"strings"
 
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // cmdAdd reads data from stdin and stores a new secret under the given description.

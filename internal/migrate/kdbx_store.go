@@ -9,7 +9,7 @@ import (
 
 	gokeepasslib "github.com/tobischo/gokeepasslib/v3"
 
-	"codeberg.org/snonux/foostore/internal/keepass"
+	"github.com/snonux/foostore/internal/keepass"
 )
 
 // KDBXStore is the minimal interface needed by the migrator to write entries

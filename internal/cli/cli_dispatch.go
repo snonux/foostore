@@ -13,8 +13,8 @@ import (
 	"os"
 	"strings"
 
-	"codeberg.org/snonux/foostore/internal/store"
-	"codeberg.org/snonux/foostore/internal/version"
+	"github.com/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/version"
 )
 
 // run dispatches a single command (when argv is non-empty and no shell flag is

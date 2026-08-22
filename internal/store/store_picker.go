@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"codeberg.org/snonux/foostore/internal/picker"
+	"github.com/snonux/foostore/internal/picker"
 )
 
 // PickerAction describes the action requested from the interactive fzf picker.

@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"codeberg.org/snonux/foostore/internal/clipboard"
-	"codeberg.org/snonux/foostore/internal/config"
-	"codeberg.org/snonux/foostore/internal/crypto"
-	"codeberg.org/snonux/foostore/internal/git"
-	"codeberg.org/snonux/foostore/internal/migrate"
-	"codeberg.org/snonux/foostore/internal/shell"
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/clipboard"
+	"github.com/snonux/foostore/internal/config"
+	"github.com/snonux/foostore/internal/crypto"
+	"github.com/snonux/foostore/internal/git"
+	"github.com/snonux/foostore/internal/migrate"
+	"github.com/snonux/foostore/internal/shell"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // testCLI creates a fully wired CLI backed by temporary directories and a real

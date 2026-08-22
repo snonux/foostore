@@ -11,8 +11,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"codeberg.org/snonux/foostore/internal/cli"
-	"codeberg.org/snonux/foostore/internal/version"
+	"github.com/snonux/foostore/internal/cli"
+	"github.com/snonux/foostore/internal/version"
 )
 
 func main() {

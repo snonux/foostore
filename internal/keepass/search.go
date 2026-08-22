@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // Search collects all indexes matching searchTerm, sorts by Description,

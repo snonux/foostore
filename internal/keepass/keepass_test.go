@@ -9,8 +9,8 @@ import (
 
 	gokeepasslib "github.com/tobischo/gokeepasslib/v3"
 
-	"codeberg.org/snonux/foostore/internal/config"
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/config"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // createTestDB builds a minimal in-memory KeePass database, writes it to a

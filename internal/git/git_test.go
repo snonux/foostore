@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"codeberg.org/snonux/foostore/internal/git"
+	"github.com/snonux/foostore/internal/git"
 )
 
 // initRepo creates a temporary git repository with a minimal config so that

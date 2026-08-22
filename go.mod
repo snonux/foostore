@@ -1,4 +1,4 @@
-module codeberg.org/snonux/foostore
+module github.com/snonux/foostore
 
 go 1.25.0
 

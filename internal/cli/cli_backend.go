@@ -12,13 +12,13 @@ import (
 	"os"
 	"path/filepath"
 
-	"codeberg.org/snonux/foostore/internal/backend"
-	"codeberg.org/snonux/foostore/internal/config"
-	"codeberg.org/snonux/foostore/internal/crypto"
-	"codeberg.org/snonux/foostore/internal/git"
-	"codeberg.org/snonux/foostore/internal/keepass"
-	"codeberg.org/snonux/foostore/internal/shell"
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/backend"
+	"github.com/snonux/foostore/internal/config"
+	"github.com/snonux/foostore/internal/crypto"
+	"github.com/snonux/foostore/internal/git"
+	"github.com/snonux/foostore/internal/keepass"
+	"github.com/snonux/foostore/internal/shell"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // resolveBackend returns the effective backend name given the flag override and

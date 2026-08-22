@@ -9,7 +9,7 @@ import (
 
 	gokeepasslib "github.com/tobischo/gokeepasslib/v3"
 
-	"codeberg.org/snonux/foostore/internal/store"
+	"github.com/snonux/foostore/internal/store"
 )
 
 // virtualEntry is an in-memory row produced by flattening the KeePass group
