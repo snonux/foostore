@@ -870,6 +870,55 @@ func TestSearchActionCatSkipsBinary(t *testing.T) {
 	}
 }
 
+// TestAttachmentBinaryFlag_fDroidPath verifies that a KeePass attachment whose
+// parent title contains ".txt" is still classified as binary (regression for the
+// f-droid quicklog keystore entry).
+func TestAttachmentBinaryFlag_fDroidPath(t *testing.T) {
+	dbPath := createTestDB(t)
+	b := newTestBackend(t, dbPath)
+	ctx := context.Background()
+
+	parentDesc := "keys/f-droid/quicklog-release.jks.txt"
+	if err := b.Add(ctx, parentDesc, string(formatContent("", "", "", "keystore notes"))); err != nil {
+		t.Fatalf("Add parent entry: %v", err)
+	}
+	attachContent := []byte{0x30, 0x82, 0x01, 0x00} // fake PKCS#12 header bytes
+	if err := b.Add(ctx, parentDesc+"/quicklog-release.jks", string(attachContent)); err != nil {
+		t.Fatalf("Add attachment: %v", err)
+	}
+
+	b2 := newTestBackend(t, dbPath)
+	var attachIdx *store.Index
+	if err := b2.WalkIndexes(ctx, `quicklog-release\.jks$`, func(idx *store.Index) error {
+		if idx.Description == parentDesc+"/quicklog-release.jks" {
+			attachIdx = idx
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("WalkIndexes: %v", err)
+	}
+	if attachIdx == nil {
+		t.Fatal("attachment entry not found")
+	}
+	if !attachIdx.IsBinary() {
+		t.Errorf("IsBinary() = false for %q; want true", attachIdx.Description)
+	}
+	if !strings.Contains(attachIdx.String(), "(BINARY)") {
+		t.Errorf("String() missing (BINARY) marker: %q", attachIdx.String())
+	}
+
+	var searchErr error
+	out := captureStdout(t, func() {
+		_, searchErr = b2.Search(ctx, attachIdx.Description, store.ActionCat, nil, nil)
+	})
+	if searchErr != nil {
+		t.Fatalf("Search(ActionCat): %v", searchErr)
+	}
+	if !strings.Contains(out, "Not displaying") {
+		t.Errorf("expected 'Not displaying' for attachment; got: %q", out)
+	}
+}
+
 // TestEnsureRootGroup_nilContent verifies that ensureRootGroup initialises
 // Content and Root on a database that has no Content set. After the call the
 // database must have at least one top-level group.

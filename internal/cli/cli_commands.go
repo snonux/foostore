@@ -99,6 +99,53 @@ func resolveImportDest(argv []string, srcFile, normSrc string) (dest string, for
 	return dest, force
 }
 
+// cmdAttach imports a file as a binary attachment on an existing parent entry.
+// argv: attach FILE PARENT [NAME] [force]
+//
+// PARENT is the description of an existing text entry. NAME defaults to the
+// basename of FILE. The destination path is PARENT/NAME, which the KeePass
+// backend stores as a BinaryReference on the parent entry.
+func (c *CLI) cmdAttach(ctx context.Context, argv []string) int {
+	srcPath, destPath, force, err := resolveAttachArgs(argv)
+	if err != nil {
+		warn(err.Error())
+		return 1
+	}
+	if err := c.st.Import(ctx, srcPath, destPath, force); err != nil {
+		warn(err.Error())
+		return 1
+	}
+	return 0
+}
+
+// resolveAttachArgs parses attach argv into source path, destination path, and
+// force flag. PARENT is argv[2]; an optional NAME defaults to basename(FILE).
+func resolveAttachArgs(argv []string) (srcPath, destPath string, force bool, err error) {
+	if len(argv) < 3 {
+		return "", "", false, fmt.Errorf("attach requires a file and parent entry argument")
+	}
+	srcPath = argv[1]
+	parent := argv[2]
+	var name string
+	for i := 3; i < len(argv); i++ {
+		switch argv[i] {
+		case "force":
+			force = true
+		default:
+			if name != "" {
+				return "", "", false, fmt.Errorf("attach: unexpected argument %q", argv[i])
+			}
+			name = argv[i]
+		}
+	}
+	if name == "" {
+		name = filepath.Base(srcPath)
+	}
+	destPath = strings.TrimRight(parent, "/") + "/" + name
+	destPath = strings.ReplaceAll(destPath, "//", "/")
+	return srcPath, destPath, force, nil
+}
+
 // cmdImportR recursively imports all files in a directory.
 // argv: import_r DIR [DEST]
 func (c *CLI) cmdImportR(ctx context.Context, argv []string) int {

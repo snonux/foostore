@@ -20,6 +20,12 @@ type Index struct {
 	DataFile    string // relative path within data_dir (e.g. "abc/def.data")
 	IndexPath   string // absolute path to .index file
 	Hash        string // hex filename without extension (64-char SHA256 hex)
+
+	// BinaryKnown is set by backends with authoritative binary knowledge (e.g.
+	// KeePass attachments). When true, IsBinary returns Binary instead of the
+	// extension heuristic below.
+	BinaryKnown bool
+	Binary      bool
 }
 
 // loadIndex decrypts an .index file and builds an Index struct.
@@ -54,12 +60,13 @@ func loadIndex(ctx context.Context, absoluteIndexPath, dataDir string, encryptor
 	}, nil
 }
 
-// IsBinary returns true when the Description implies a binary file format.
-// Text-like extensions (.txt, .README, .conf, .csv, .md) return false.
-// Any other description containing a "." returns true (binary heuristic).
-// Descriptions without any "." return false (no extension → assume text).
-// This mirrors the Ruby Index#binary? method exactly.
+// IsBinary returns true when the entry holds binary content. Backends that know
+// the content type (KeePass attachments) set BinaryKnown and Binary; otherwise
+// the Ruby-compatible extension heuristic on Description is used.
 func (idx *Index) IsBinary() bool {
+	if idx.BinaryKnown {
+		return idx.Binary
+	}
 	d := idx.Description
 	if strings.Contains(d, ".txt") {
 		return false

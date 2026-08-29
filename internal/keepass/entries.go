@@ -37,6 +37,8 @@ func (v *virtualEntry) toIndex() *store.Index {
 	return &store.Index{
 		Description: v.description,
 		Hash:        hash,
+		BinaryKnown: true,
+		Binary:      v.isBinary,
 	}
 }
 

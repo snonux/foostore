@@ -169,6 +169,8 @@ func (c *CLI) dispatchSimple(ctx context.Context, argv []string, cmd string) (in
 		return c.cmdImport(ctx, argv), "", true
 	case "import_r":
 		return c.cmdImportR(ctx, argv), "", true
+	case "attach":
+		return c.cmdAttach(ctx, argv), "", true
 	case "sync":
 		return c.dispatchGitOp(func() error { return c.g.Sync(ctx, c.cfg.SyncRepos) })
 	case "status":

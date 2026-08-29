@@ -33,7 +33,7 @@ import (
 // the Ruby COMMANDS constant exactly.  Used for tab-completion and `commands`.
 var CommandList = []string{
 	"ls", "search", "cat", "paste", "get", "add", "export", "pathexport",
-	"open", "edit", "import", "import_r", "rm", "sync", "status", "commit",
+	"open", "edit", "import", "import_r", "attach", "rm", "sync", "status", "commit",
 	"reset", "fullcommit", "shred", "migrate-kdbx", "fish", "version", "commands", "help", "shell",
 	"exit", "last",
 }
@@ -212,6 +212,7 @@ add DESCRIPTION
 export|pathexport|open|edit FILE
 import FILE [DEST_DIRECTORY] [force]
 import_r DIRECTORY [DEST_DIRECTORY]
+attach FILE PARENT [NAME] [force]
 rm SEARCHTERM
 sync|status|commit|reset|fullcommit
 shred

@@ -97,8 +97,14 @@ func writeFishCompleteDirectives(b *strings.Builder, bin string) {
 	fmt.Fprintf(b, "# Complete entry names for commands that accept a search term\n")
 	fmt.Fprintf(b, "complete -c %s -f -n '__fish_seen_subcommand_from search cat paste export pathexport open edit rm' -a '(__fish_%s_entries)'\n\n", bin, bin)
 
-	fmt.Fprintf(b, "# Complete file paths for import\n")
-	fmt.Fprintf(b, "complete -c %s -n '__fish_seen_subcommand_from import' -F\n\n", bin)
+	fmt.Fprintf(b, "# Complete file paths for import and attach\n")
+	fmt.Fprintf(b, "complete -c %s -n '__fish_seen_subcommand_from import attach' -F\n\n", bin)
+
+	fmt.Fprintf(b, "# Complete entry names as attach parent (third token)\n")
+	fmt.Fprintf(b, "complete -c %s -f -n '__fish_seen_subcommand_from attach; and __fish_is_nth_token 3' -a '(__fish_%s_entries)'\n\n", bin, bin)
+
+	fmt.Fprintf(b, "# Complete force flag for attach (fifth token)\n")
+	fmt.Fprintf(b, "complete -c %s -n '__fish_seen_subcommand_from attach; and __fish_is_nth_token 5' -f -a 'force'\n\n", bin)
 
 	fmt.Fprintf(b, "# Complete directory paths for import destination (third token)\n")
 	fmt.Fprintf(b, "complete -c %s -n '__fish_seen_subcommand_from import; and __fish_is_nth_token 3' -F -a '(__fish_complete_directories)'\n\n", bin)
@@ -148,8 +154,14 @@ func writeFishGeCompleteDirectives(b *strings.Builder) {
 	b.WriteString("# ge completion: entry names for search-type commands\n")
 	b.WriteString("complete -c ge -f -n '__fish_seen_subcommand_from search cat paste export pathexport open edit rm' -a '(__fish_foostore_entries)'\n\n")
 
-	b.WriteString("# ge completion: file paths for import\n")
-	b.WriteString("complete -c ge -n '__fish_seen_subcommand_from import' -F\n\n")
+	b.WriteString("# ge completion: file paths for import and attach\n")
+	b.WriteString("complete -c ge -n '__fish_seen_subcommand_from import attach' -F\n\n")
+
+	b.WriteString("# ge completion: entry names as attach parent (third token)\n")
+	b.WriteString("complete -c ge -f -n '__fish_seen_subcommand_from attach; and __fish_is_nth_token 3' -a '(__fish_foostore_entries)'\n\n")
+
+	b.WriteString("# ge completion: force flag for attach (fifth token)\n")
+	b.WriteString("complete -c ge -n '__fish_seen_subcommand_from attach; and __fish_is_nth_token 5' -f -a 'force'\n\n")
 
 	b.WriteString("# ge completion: directory paths for import destination (third token)\n")
 	b.WriteString("complete -c ge -n '__fish_seen_subcommand_from import; and __fish_is_nth_token 3' -F -a '(__fish_complete_directories)'\n\n")

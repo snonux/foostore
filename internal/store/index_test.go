@@ -68,6 +68,24 @@ func TestIsBinary(t *testing.T) {
 	}
 }
 
+// TestIsBinary_backendOverride verifies that BinaryKnown overrides the extension
+// heuristic so KeePass attachment paths are classified correctly even when the
+// parent segment contains a whitelisted text extension like ".txt".
+func TestIsBinary_backendOverride(t *testing.T) {
+	idx := &Index{
+		Description: "keys/f-droid/quicklog-release.jks.txt/quicklog-release.jks",
+		BinaryKnown: true,
+		Binary:      true,
+	}
+	if !idx.IsBinary() {
+		t.Error("IsBinary() = false; want true when BinaryKnown is set")
+	}
+	idx.Binary = false
+	if idx.IsBinary() {
+		t.Error("IsBinary() = true; want false when BinaryKnown and Binary=false")
+	}
+}
+
 // --- TestIndexString ---------------------------------------------------------
 
 // TestIndexString verifies the String() format for both text and binary entries.

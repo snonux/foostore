@@ -253,6 +253,62 @@ func TestCmdImportR_missingArgs(t *testing.T) {
 	}
 }
 
+// TestResolveAttachArgs verifies attach destination path construction.
+func TestResolveAttachArgs(t *testing.T) {
+	t.Run("parent only uses basename", func(t *testing.T) {
+		src, dest, force, err := resolveAttachArgs([]string{"attach", "/tmp/quicklog-release.jks", "keys/f-droid/quicklog-release.jks.txt"})
+		if err != nil {
+			t.Fatalf("resolveAttachArgs: %v", err)
+		}
+		if src != "/tmp/quicklog-release.jks" {
+			t.Errorf("src = %q", src)
+		}
+		if dest != "keys/f-droid/quicklog-release.jks.txt/quicklog-release.jks" {
+			t.Errorf("dest = %q", dest)
+		}
+		if force {
+			t.Error("force = true; want false")
+		}
+	})
+
+	t.Run("explicit name", func(t *testing.T) {
+		_, dest, _, err := resolveAttachArgs([]string{"attach", "/tmp/file.bin", "keys/foo", "alias.bin"})
+		if err != nil {
+			t.Fatalf("resolveAttachArgs: %v", err)
+		}
+		if dest != "keys/foo/alias.bin" {
+			t.Errorf("dest = %q; want keys/foo/alias.bin", dest)
+		}
+	})
+
+	t.Run("force flag", func(t *testing.T) {
+		_, _, force, err := resolveAttachArgs([]string{"attach", "/tmp/a.bin", "keys/foo", "force"})
+		if err != nil {
+			t.Fatalf("resolveAttachArgs: %v", err)
+		}
+		if !force {
+			t.Error("force = false; want true")
+		}
+	})
+
+	t.Run("missing args", func(t *testing.T) {
+		_, _, _, err := resolveAttachArgs([]string{"attach", "/tmp/a.bin"})
+		if err == nil {
+			t.Fatal("expected error for missing parent")
+		}
+	})
+}
+
+// TestCmdAttach_missingArgs verifies cmdAttach returns exit code 1 when args
+// are missing.
+func TestCmdAttach_missingArgs(t *testing.T) {
+	c := &CLI{}
+	ec := c.cmdAttach(context.Background(), []string{"attach"})
+	if ec != 1 {
+		t.Errorf("cmdAttach with no args = %d; want 1", ec)
+	}
+}
+
 // ---- store-backed dispatch tests --------------------------------------------
 // These tests use testCLI() which provides a real but empty store.
 
