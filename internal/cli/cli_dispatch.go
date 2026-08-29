@@ -255,6 +255,8 @@ func (c *CLI) dispatchSearch(ctx context.Context, argv []string, cmd string) (in
 			return 1, ""
 		}
 		return 0, ""
+	case "attachments":
+		return c.cmdAttachments(ctx, term)
 	case "cat", "paste", "export", "pathexport", "open", "edit":
 		action := SearchActions[cmd]
 		return c.cmdSearchAction(ctx, term, action, c.makeActionFn(ctx, action))

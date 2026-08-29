@@ -919,6 +919,32 @@ func TestAttachmentBinaryFlag_fDroidPath(t *testing.T) {
 	}
 }
 
+// TestListAttachments verifies attachment filenames are listed for a parent entry.
+func TestListAttachments(t *testing.T) {
+	dbPath := createTestDB(t)
+	b := newTestBackend(t, dbPath)
+	ctx := context.Background()
+
+	names, err := b.ListAttachments(ctx, "Work/Report")
+	if err != nil {
+		t.Fatalf("ListAttachments: %v", err)
+	}
+	if len(names) != 1 || names[0] != "report.pdf" {
+		t.Errorf("ListAttachments = %v; want [report.pdf]", names)
+	}
+}
+
+// TestListAttachments_missingParent returns an error when the entry does not exist.
+func TestListAttachments_missingParent(t *testing.T) {
+	dbPath := createTestDB(t)
+	b := newTestBackend(t, dbPath)
+	ctx := context.Background()
+
+	if _, err := b.ListAttachments(ctx, "Work/Missing"); err == nil {
+		t.Fatal("expected error for missing parent entry")
+	}
+}
+
 // TestEnsureRootGroup_nilContent verifies that ensureRootGroup initialises
 // Content and Root on a database that has no Content set. After the call the
 // database must have at least one top-level group.

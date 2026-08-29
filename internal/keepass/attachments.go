@@ -1,7 +1,9 @@
 package keepass
 
 import (
+	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	gokeepasslib "github.com/tobischo/gokeepasslib/v3"
@@ -131,4 +133,35 @@ func (b *Backend) removeAttachment(parentDesc, attachName string) error {
 	}
 
 	return b.save()
+}
+
+// ListAttachments returns the attachment filenames on the text entry identified
+// by parentDesc. Returns an error when the parent entry does not exist.
+func (b *Backend) ListAttachments(ctx context.Context, parentDesc string) ([]string, error) {
+	parentDesc = strings.TrimRight(parentDesc, "/")
+	if parentDesc == "" {
+		return nil, fmt.Errorf("keepass list attachments: empty parent entry")
+	}
+
+	groupPath, title, err := SplitDescriptionPath(parentDesc)
+	if err != nil {
+		return nil, fmt.Errorf("keepass list attachments: %w", err)
+	}
+
+	g := EnsureGroup(b.root(), groupPath)
+	entry, found := findEntryByTitle(g, title)
+	if !found {
+		return nil, fmt.Errorf("keepass list attachments: entry %q not found", parentDesc)
+	}
+
+	names := make([]string, 0, len(entry.Binaries))
+	for _, ref := range entry.Binaries {
+		name := ref.Name
+		if name == "" {
+			name = "attachment"
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
 }

@@ -95,7 +95,7 @@ func writeFishCompleteDirectives(b *strings.Builder, bin string) {
 	fmt.Fprintf(b, "complete -c %s -f -n '__fish_use_subcommand' -a '(__fish_%s_commands)'\n\n", bin, bin)
 
 	fmt.Fprintf(b, "# Complete entry names for commands that accept a search term\n")
-	fmt.Fprintf(b, "complete -c %s -f -n '__fish_seen_subcommand_from search cat paste export pathexport open edit rm' -a '(__fish_%s_entries)'\n\n", bin, bin)
+	fmt.Fprintf(b, "complete -c %s -f -n '__fish_seen_subcommand_from search cat paste export pathexport open edit rm attachments' -a '(__fish_%s_entries)'\n\n", bin, bin)
 
 	fmt.Fprintf(b, "# Complete file paths for import and attach\n")
 	fmt.Fprintf(b, "complete -c %s -n '__fish_seen_subcommand_from import attach' -F\n\n", bin)
@@ -152,7 +152,7 @@ func writeFishGeCompleteDirectives(b *strings.Builder) {
 	b.WriteString("complete -c ge -f -n '__fish_use_subcommand' -a '(__fish_foostore_entries)'\n\n")
 
 	b.WriteString("# ge completion: entry names for search-type commands\n")
-	b.WriteString("complete -c ge -f -n '__fish_seen_subcommand_from search cat paste export pathexport open edit rm' -a '(__fish_foostore_entries)'\n\n")
+	b.WriteString("complete -c ge -f -n '__fish_seen_subcommand_from search cat paste export pathexport open edit rm attachments' -a '(__fish_foostore_entries)'\n\n")
 
 	b.WriteString("# ge completion: file paths for import and attach\n")
 	b.WriteString("complete -c ge -n '__fish_seen_subcommand_from import attach' -F\n\n")

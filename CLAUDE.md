@@ -75,6 +75,6 @@ Search (`WalkIndexes`) decrypts every `.index` file and regex-matches against th
 - Encryption key and IV are initialised once per process from the key file and PIN (`internal/crypto.Cipher`).
 - Commit messages are intentionally generic ("Changing stuff, not telling what in commit history") to avoid leaking metadata into git history.
 - Binary vs text detection in `Index.IsBinary()` is extension-based; known text extensions (`.txt`, `.README`, `.conf`, `.csv`, `.md`) are whitelisted. KeePass backends set `BinaryKnown` on attachment entries so parent paths containing `.txt` are still treated as binary.
-- **Attachments (KeePass backend):** parent text entry plus virtual path `parent/filename`. Use `attach FILE PARENT [NAME] [force]` or `import FILE parent/name [force]` to add; `export`, `open`, and `rm` use the virtual path.
+- **Attachments (KeePass backend):** parent text entry plus virtual path `parent/filename`. Use `attach FILE PARENT [NAME] [force]` or `import FILE parent/name [force]` to add; `attachments ENTRY` to list; `export`, `open`, and `rm` use the virtual path.
 - The `shred` command (GNU coreutils) is used when available; falls back to `rm -Pfv`.
 - AES-256-CBC implementation is byte-identical to the original Ruby `geheim.rb` so existing encrypted databases remain readable.

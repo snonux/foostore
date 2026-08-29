@@ -67,6 +67,11 @@ type Backend interface {
 
 	// ShredAllExported securely deletes every file in the export directory.
 	ShredAllExported(ctx context.Context) error
+
+	// ListAttachments returns attachment filenames stored on parentDesc.
+	// Each name can be combined with parentDesc as parentDesc/name for export,
+	// open, rm, and other commands.
+	ListAttachments(ctx context.Context, parentDesc string) ([]string, error)
 }
 
 // Ensure *store.Store satisfies Backend at compile time.

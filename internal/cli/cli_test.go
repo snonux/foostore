@@ -309,6 +309,16 @@ func TestCmdAttach_missingArgs(t *testing.T) {
 	}
 }
 
+// TestCmdAttachments_missingArgs verifies cmdAttachments returns exit code 1
+// when no entry is supplied.
+func TestCmdAttachments_missingArgs(t *testing.T) {
+	c := &CLI{}
+	ec, _ := c.cmdAttachments(context.Background(), "")
+	if ec != 1 {
+		t.Errorf("cmdAttachments with empty entry = %d; want 1", ec)
+	}
+}
+
 // ---- store-backed dispatch tests --------------------------------------------
 // These tests use testCLI() which provides a real but empty store.
 

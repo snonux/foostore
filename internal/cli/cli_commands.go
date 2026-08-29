@@ -146,6 +146,39 @@ func resolveAttachArgs(argv []string) (srcPath, destPath string, force bool, err
 	return srcPath, destPath, force, nil
 }
 
+// cmdAttachments lists binary attachments on a parent entry.
+// argv: attachments ENTRY
+//
+// Prints one virtual path per line (parent/filename) suitable for export, open,
+// or rm. ENTRY is the parent text entry description.
+func (c *CLI) cmdAttachments(ctx context.Context, parentDesc string) (int, string) {
+	parentDesc = strings.TrimRight(parentDesc, "/")
+	if parentDesc == "" {
+		warn("attachments requires an entry argument")
+		return 1, ""
+	}
+
+	names, err := c.st.ListAttachments(ctx, parentDesc)
+	if err != nil {
+		warn(err.Error())
+		return 1, ""
+	}
+
+	var first string
+	for _, name := range names {
+		path := parentDesc + "/" + name
+		fmt.Println(path)
+		if first == "" {
+			first = path
+		}
+	}
+	logMsg(fmt.Sprintf("%d attachments on %q", len(names), parentDesc))
+	if first != "" {
+		return 0, first
+	}
+	return 0, parentDesc
+}
+
 // cmdImportR recursively imports all files in a directory.
 // argv: import_r DIR [DEST]
 func (c *CLI) cmdImportR(ctx context.Context, argv []string) int {
