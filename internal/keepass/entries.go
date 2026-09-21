@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
+	"path"
 	"strings"
 
 	gokeepasslib "github.com/tobischo/gokeepasslib/v3"
@@ -88,10 +88,7 @@ func collectEntry(rows *[]virtualEntry, e *gokeepasslib.Entry, groupPath []strin
 	})
 
 	for _, binRef := range e.Binaries {
-		attName := binRef.Name
-		if attName == "" {
-			attName = "attachment"
-		}
+		attName := attachmentDisplayName(binRef.Name)
 		*rows = append(*rows, virtualEntry{
 			description:    descriptionOf(groupPath, title, attName),
 			isBinary:       true,
@@ -99,6 +96,21 @@ func collectEntry(rows *[]virtualEntry, e *gokeepasslib.Entry, groupPath []strin
 			attachmentName: attName,
 		})
 	}
+}
+
+// unnamedAttachment is the display name given to a binary reference whose
+// stored name is empty, so it still has a usable "Group/Title/name" identity.
+const unnamedAttachment = "attachment"
+
+// attachmentDisplayName maps a stored binary reference name onto the name used
+// in descriptions. Every place that compares a description-derived attachment
+// name with a stored reference name must go through it, or unnamed attachments
+// become listed but unreadable.
+func attachmentDisplayName(stored string) string {
+	if stored == "" {
+		return unnamedAttachment
+	}
+	return stored
 }
 
 // descriptionOf builds the foostore Description string from the group path
@@ -202,16 +214,20 @@ func SplitDescriptionPath(description string) ([]string, string, error) {
 // SanitizeRelativePath normalises slashes, trims whitespace, and rejects paths
 // that would escape the store root (empty, ".", "..", or starting with "../").
 // Exported so that internal/cli/kdbx_store.go can reuse it without duplication.
-func SanitizeRelativePath(path string) (string, error) {
-	normalised := strings.ReplaceAll(path, "\\", "/")
+//
+// Entry descriptions always use "/", never the OS separator, so the path is
+// cleaned with path.Clean rather than filepath.Clean: the latter would rewrite
+// "/" to "\\" on Windows and defeat the leading-slash and "../" checks below.
+func SanitizeRelativePath(description string) (string, error) {
+	normalised := strings.ReplaceAll(description, "\\", "/")
 	normalised = strings.TrimSpace(normalised)
 	if normalised == "" {
 		return "", fmt.Errorf("empty entry description")
 	}
-	clean := filepath.Clean(normalised)
+	clean := path.Clean(normalised)
 	clean = strings.TrimPrefix(clean, "/")
 	if clean == "." || clean == "" || clean == ".." || strings.HasPrefix(clean, "../") {
-		return "", fmt.Errorf("unsafe entry description path %q", path)
+		return "", fmt.Errorf("unsafe entry description path %q", description)
 	}
 	return clean, nil
 }

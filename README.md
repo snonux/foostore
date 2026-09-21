@@ -2,7 +2,7 @@
 
 # foostore
 
-This is an humble Go tool for text and binary document encryption. It uses `AES-256-CBC` by default and the initialization vector is generated from an user input PIN.
+This is an humble Go tool for text and binary document encryption. The default backend is a KeePass database (`.kdbx`, password plus optional key file). The original backend (`geheim`) stores AES-256-CBC encrypted `.index`/`.data` pairs in a Git repository, with the initialization vector generated from a user input PIN. Note that the legacy CBC format has no authentication tag, so it should not be used for new infrastructure secrets.
 
 This is for my own use. So the documentation here may be lacking. But feel free to try out yourself or ask!
 
@@ -19,6 +19,31 @@ This is for my own use. So the documentation here may be lacking. But feel free 
 * Interactive `foostore` shell support.
 * Can import and export documuments in batches.
 * Can shred exported data again.
+
+## Machine-Facing Read (`foostore read`)
+
+For automation, foostore offers a separate read command that is exact, raw, and non-interactive. It is defined for the KeePass backend only (the legacy geheim CBC store is not supported for machine reads) and it never prompts, opens a shell, uses fzf, touches the clipboard, exports files, or syncs git:
+
+```bash
+foostore read --field Password --exact --raw --non-interactive Vault/api-token
+foostore read Vault/Blob/blob.bin      # attachment references need no --field
+foostore --kdbx-path /srv/gonf.kdbx read --timeout 10s --field Password Vault/api-token
+```
+
+The reference is the exact entry identity: the group names below the database's top-level group (whatever it is called), then the entry title (`Group/Title`; for foostore-written databases the same string `ls` shows). Unlike `ls` nothing is dropped or renamed — a sub-group that happens to be called `Root` stays part of the path, and entries with an empty title have no addressable identity. An attachment is selected by its reference form (`Group/Title/name`). It is compared byte for byte with no trimming or path cleaning, so a mere respelling (`./Vault/x`, `/Vault/x`, `Vault//x`, padding) is a usage error (exit `2`) rather than a suppressible not-found. Flags take non-empty values only (an empty value is usually an unset shell variable and never selects a default), and may precede the command word in any order (a flag directly followed by the word `read` is refused before the command word — an unquoted unset shell variable produces that shape — so put such flags after the command, e.g. `foostore read --field read Vault/x`). Use `--` before a reference that starts with `-`; `--help` prints the usage. Entry references require `--field NAME` (e.g. `--field Password`, `--field UserName`); attachment references reject `--field`. Stdout carries only the requested bytes — trailing newlines and binary content are preserved byte for byte. Ambiguous identities (duplicate titles in one group, duplicate attachment names, or an entry with two fields of the requested name) are rejected instead of guessed.
+
+Exit codes: `0` ok; `1` unexpected failure, timeout or signal cancellation; `2` usage; `4` not found (the only code automation may suppress); `5` ambiguous identity; `6` locked or unusable credentials; `7` corrupt store; `8` store I/O error (including an unreadable or malformed `~/.config/foostore.json` — a machine read never falls back to default settings). `--timeout` (default `30s`) bounds the whole read — waiting for the credential source, the KDF and the final stdout write (a consumer that stops reading can leave a prefix of the bytes behind, which the non-zero exit code marks as not the requested value); SIGINT/SIGTERM cancel at any of those points; diagnostics never contain secret bytes.
+
+Credentials resolve non-interactively, in priority order:
+
+1. `FOOSTORE_READ_PASSPHRASE_FD` — an inherited file descriptor carrying the passphrase (preferred for unattended machines; the secret travels through a kernel pipe, not the environment). The writer must close its end — the passphrase is everything up to end-of-file, at most 1 MiB. Exactly one trailing line terminator is stripped. Descriptors 1 and 2, non-numeric or non-canonical numbers, and descriptors that are not an inherited pipe, socket or regular file (close-on-exec descriptors, which the process opened itself, are never read) are refused; the descriptor is consumed and closed.
+2. `kdbx_pass_file` — an explicit local tradeoff that must be set in the config file itself (the built-in `~/.master.pass` default is never used for machine reads); machine reads require a regular file owned by the current user with no group or world permission bits (`0600` and the stricter `0400` both pass), checked on the very handle that is then read (at most 1 MiB, one trailing line terminator stripped). A missing, lax, foreign-owned or empty file fails loudly. The same rules apply to `kdbx_key_file`, and an empty key file is refused rather than ignored.
+
+The descriptor source and the ownership/permission checks are Unix mechanisms: on other platforms (Windows) `FOOSTORE_READ_PASSPHRASE_FD` is refused and `kdbx_pass_file` is used without the owner-only checks, which have no equivalent there.
+
+There is deliberately no `$PIN` or prompt fallback for machine reads: environment variables leak to child processes and `/proc/<pid>/environ`, and a prompt would block automation. A truncated or damaged store is reported as corrupt (`7`), never as a crash, and a store with more than one top-level group is refused as corrupt rather than answering not-found for entries that exist. Attachments come back byte for byte in KDBX 3.1 and KDBX 4 stores (base64-looking content is not decoded, padding is not appended); a damaged attachment payload is an error, never partial bytes. Reads need a resolvable home directory for `~/.config/foostore.json` — there is no shared-temp-directory fallback. A consumer that closes stdout early gets exit `8`, not a SIGPIPE death.
+
+Unknown backend names fail instead of silently falling through to the legacy backend.
 
 ## Fish Shell Integration
 

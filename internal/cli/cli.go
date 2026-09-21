@@ -31,11 +31,13 @@ import (
 
 // CommandList is the canonical list of supported commands, ordered to match
 // the Ruby COMMANDS constant exactly.  Used for tab-completion and `commands`.
+// "read" is the machine-facing exception: it was added for exact raw
+// non-interactive consumption and has no Ruby counterpart.
 var CommandList = []string{
 	"ls", "search", "cat", "paste", "get", "add", "export", "pathexport",
 	"open", "edit", "import", "import_r", "attach", "attachments", "rm", "sync", "status", "commit",
 	"reset", "fullcommit", "shred", "migrate-kdbx", "fish", "version", "commands", "help", "shell",
-	"exit", "last",
+	"exit", "last", "read",
 }
 
 // SearchActions maps command names to store.Action values for commands that
@@ -215,6 +217,7 @@ import_r DIRECTORY [DEST_DIRECTORY]
 attach FILE PARENT [NAME] [force]
 attachments ENTRY
 rm SEARCHTERM
+read [--field NAME] [--exact] [--raw] [--non-interactive] [--timeout DURATION] REFERENCE
 sync|status|commit|reset|fullcommit
 shred
 migrate-kdbx [--db PATH] [--pass-file PATH] [--binary-out PATH] [--dry-run]

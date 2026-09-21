@@ -43,9 +43,16 @@ func main() {
 	}
 
 	// Cancel the context on SIGINT or SIGTERM so that long-running operations
-	// (fzf, external editors) terminate gracefully rather than being killed hard.
+	// (fzf, external editors, machine reads) terminate gracefully rather than
+	// being killed hard.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Short-circuit the machine-facing "read" subcommand before any
+	// interactive initialisation; see runMachineRead.
+	if readArgs, isRead, err := cli.MachineReadArgs(args); isRead {
+		os.Exit(runMachineRead(ctx, readArgs, err))
+	}
 
 	// Pass all args to the CLI. New parses --backend and --kdbx-path from them
 	// to select the backend at init time; Run strips those flags before dispatch.
@@ -56,4 +63,23 @@ func main() {
 	}
 
 	os.Exit(c.Run(ctx, args))
+}
+
+// runMachineRead runs the machine-facing "read" command and returns its exit
+// code. It must bypass the interactive CLI initialisation entirely so that no
+// prompt, shell, clipboard, fzf, or git sync can be inherited, and so its
+// distinct exit codes survive. The command is detected after any flags (see
+// cli.MachineReadArgs), so a flag-first or mis-ordered invocation cannot fall
+// through into the interactive initialisation. invocationErr is a usage
+// problem MachineReadArgs already found.
+func runMachineRead(ctx context.Context, readArgs []string, invocationErr error) int {
+	if invocationErr != nil {
+		fmt.Fprintf(os.Stderr, "foostore read: %v\n", invocationErr)
+		return cli.ReadExitUsage
+	}
+	// A consumer that closes its end early must get the documented I/O exit
+	// code, not a SIGPIPE death: with SIGPIPE ignored the stdout write fails
+	// with EPIPE instead.
+	signal.Ignore(syscall.SIGPIPE)
+	return cli.Read(ctx, readArgs)
 }

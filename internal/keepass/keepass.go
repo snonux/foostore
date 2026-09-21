@@ -34,15 +34,32 @@ var _ backend.Backend = (*Backend)(nil)
 //
 // Pass a non-nil keyFileData only when cfg.KDBXKeyFile is non-empty; otherwise
 // pass nil to use password-only credentials.
-func New(cfg *config.Config, password string, keyFileData []byte) (*Backend, error) {
+func New(cfg *config.Config, password string, keyFileData []byte) (b *Backend, err error) {
+	// gokeepasslib panics on some truncated or damaged files (for example a
+	// KDBX 3.1 payload whose length is not a whole number of cipher blocks).
+	// A partial write is the most realistic corruption, so it must surface as
+	// a classified error instead of killing the process.
+	defer func() {
+		if r := recover(); r != nil {
+			b, err = nil, classifyOpenError(fmt.Errorf("decoding kdbx %q: decoder panic: %v", cfg.KDBXPath, r))
+		}
+	}()
+
 	creds, err := buildCredentials(password, keyFileData)
 	if err != nil {
-		return nil, fmt.Errorf("building keepass credentials: %w", err)
+		// Unusable credential material (for example an unparsable key file)
+		// is a locked-class failure for machine consumers. The library error
+		// is deliberately dropped: it can quote the offending key-file byte.
+		return nil, fmt.Errorf("%w: the key file content could not be used to build credentials", ErrLocked)
 	}
 
 	db, err := openDatabase(cfg.KDBXPath, creds)
 	if err != nil {
-		return nil, err
+		// Classify the failure onto the machine-facing sentinel classes
+		// (ErrLocked, ErrCorrupt, ErrIO) so the machine-facing read command
+		// can map it onto distinct exit codes; interactive paths see the
+		// same message with the class as a prefix.
+		return nil, classifyOpenError(err)
 	}
 
 	return &Backend{
@@ -180,7 +197,7 @@ func (b *Backend) textData(ve *virtualEntry) (*store.Data, error) {
 // and returns the decompressed content bytes.
 func (b *Backend) binaryData(ve *virtualEntry) (*store.Data, error) {
 	for _, binRef := range ve.entry.Binaries {
-		if binRef.Name != ve.attachmentName {
+		if attachmentDisplayName(binRef.Name) != ve.attachmentName {
 			continue
 		}
 		bin := binRef.Find(b.db)

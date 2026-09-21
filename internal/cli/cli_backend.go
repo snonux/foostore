@@ -38,12 +38,18 @@ func resolveBackend(flagValue, cfgValue string) string {
 // buildBackend constructs the Backend and its associated Gitter based on
 // effectiveBackend ("geheim" or "keepass").  Returns the Backend and git client
 // so the caller can wire them into the CLI struct.
+//
+// Unknown backend names fail loudly instead of silently falling through to
+// the legacy backend: a typo'd --backend or config value must never downgrade
+// to the unauthenticated legacy CBC store by accident.
 func buildBackend(ctx context.Context, cfg *config.Config, effectiveBackend string) (backend.Backend, Gitter, error) {
 	switch effectiveBackend {
 	case "keepass":
 		return buildKeepassBackend(ctx, cfg)
-	default:
+	case "geheim":
 		return buildGeheimBackend(cfg)
+	default:
+		return nil, nil, fmt.Errorf("unknown backend %q (supported: keepass, geheim)", effectiveBackend)
 	}
 }
 

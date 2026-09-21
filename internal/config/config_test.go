@@ -386,3 +386,112 @@ func TestLoad_unreadable_file(t *testing.T) {
 		t.Errorf("EditCmd = %q; want vi (default)", cfg.EditCmd)
 	}
 }
+
+// TestLoadStrict pins that the machine-facing loader treats a missing config as
+// the documented defaults but refuses to substitute defaults for a broken one.
+func TestLoadStrict(t *testing.T) {
+	t.Run("missing file yields defaults without error", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HOME", dir)
+		cfg, err := LoadStrict()
+		if err != nil {
+			t.Fatalf("LoadStrict with no config file: %v", err)
+		}
+		if cfg.KeyLength != 32 {
+			t.Errorf("KeyLength = %d; want 32 (default)", cfg.KeyLength)
+		}
+	})
+
+	t.Run("valid file overrides defaults", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HOME", dir)
+		writeUserConfig(t, dir, `{"backend":"keepass"}`)
+		cfg, err := LoadStrict()
+		if err != nil {
+			t.Fatalf("LoadStrict: %v", err)
+		}
+		if cfg.Backend != "keepass" {
+			t.Errorf("Backend = %q; want keepass", cfg.Backend)
+		}
+	})
+
+	t.Run("built-in default passfile is blanked, an explicit one is kept", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HOME", dir)
+		cfg, err := LoadStrict()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.KDBXPassFile != "" {
+			t.Errorf("KDBXPassFile = %q; want blank when the config file does not set it", cfg.KDBXPassFile)
+		}
+		if def := Load(); def.KDBXPassFile == "" {
+			t.Error("Load must keep the built-in default passfile for the interactive path")
+		}
+		writeUserConfig(t, dir, `{"kdbx_pass_file":"/etc/foostore.pass"}`)
+		cfg, err = LoadStrict()
+		if err != nil || cfg.KDBXPassFile != "/etc/foostore.pass" {
+			t.Errorf("LoadStrict = %q, %v; want the explicit /etc/foostore.pass", cfg.KDBXPassFile, err)
+		}
+	})
+
+	t.Run("a null or empty kdbx_pass_file does not count as explicit", func(t *testing.T) {
+		for _, body := range []string{`{"kdbx_pass_file": null}`, `{"kdbx_pass_file": ""}`} {
+			dir := t.TempDir()
+			t.Setenv("HOME", dir)
+			writeUserConfig(t, dir, body)
+			cfg, err := LoadStrict()
+			if err != nil || cfg.KDBXPassFile != "" {
+				t.Errorf("%s: KDBXPassFile = %q, %v; want blank (the built-in default must not leak in)", body, cfg.KDBXPassFile, err)
+			}
+		}
+	})
+
+	t.Run("key spelling is matched the way the config is decoded", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HOME", dir)
+		writeUserConfig(t, dir, `{"KDBX_PASS_FILE": "/etc/foostore.pass"}`)
+		cfg, err := LoadStrict()
+		if err != nil || cfg.KDBXPassFile != "/etc/foostore.pass" {
+			t.Errorf("KDBXPassFile = %q, %v; want the operator's path kept", cfg.KDBXPassFile, err)
+		}
+	})
+
+	t.Run("unresolvable HOME is an error, never a shared fallback directory", func(t *testing.T) {
+		t.Setenv("HOME", "")
+		if _, err := LoadStrict(); err == nil {
+			t.Fatal("LoadStrict succeeded without a resolvable home directory")
+		}
+	})
+
+	t.Run("invalid JSON is an error naming the file", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("HOME", dir)
+		writeUserConfig(t, dir, `{invalid json}`)
+		stderr := captureStderr(func() {
+			if _, err := LoadStrict(); err == nil || !strings.Contains(err.Error(), "foostore.json") {
+				t.Errorf("LoadStrict error = %v; want an error naming foostore.json", err)
+			}
+		})
+		if stderr != "" {
+			t.Errorf("LoadStrict must not print warnings itself, got: %q", stderr)
+		}
+	})
+
+	t.Run("unreadable file is an error", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("running as root: permission checks do not apply")
+		}
+		dir := t.TempDir()
+		t.Setenv("HOME", dir)
+		writeUserConfig(t, dir, `{"backend":"keepass"}`)
+		cfgPath := filepath.Join(dir, ".config", "foostore.json")
+		if err := os.Chmod(cfgPath, 0o000); err != nil {
+			t.Fatalf("Chmod: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(cfgPath, 0o600) })
+		if _, err := LoadStrict(); err == nil {
+			t.Fatal("LoadStrict succeeded on an unreadable config; want an error")
+		}
+	})
+}

@@ -172,35 +172,79 @@ func expandPathFields(cfg *Config) {
 // Any field present in the JSON file overrides the corresponding default
 // (including edit_cmd, which defaults to $EDITOR or "vi" when unset);
 // fields absent from the file keep their default values.
-// If the file is missing or contains invalid JSON a warning is printed to
-// stderr and the pure defaults are returned.
+// If the file is unreadable or contains invalid JSON a warning is printed to
+// stderr and the pure defaults are returned; a missing file silently yields
+// the defaults.
 // Note: the Ruby reference uses puts (stdout) for this warning; we use stderr
 // intentionally because warnings belong on the error stream.
 func Load() Config {
-	home := homeDirOrFallback()
+	cfg, path, _, err := loadFrom(homeDirOrFallback())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to read %s, using defaults! %v\n", path, err)
+	}
+	return cfg
+}
+
+// LoadStrict is Load for callers that must not silently substitute defaults
+// for a broken configuration (the machine-facing read command: falling back
+// to the default database and credential sources could read from the wrong
+// store). A missing config file is still fine — defaults are the documented
+// behaviour — but an unreadable file or invalid JSON is returned as an error,
+// and so is an unresolvable home directory: Load's shared-temp-dir fallback
+// would let anyone able to write there plant a config that redirects the read.
+//
+// The credential file is also never taken from a built-in default: unless the
+// config file itself sets kdbx_pass_file, the returned KDBXPassFile is empty,
+// so an owner-only ~/.master.pass that the operator never pointed a machine
+// read at cannot be picked up silently.
+func LoadStrict() (Config, error) {
+	home, err := resolveHomeDir()
+	if err != nil {
+		return Config{}, fmt.Errorf("cannot resolve the home directory for the config file: %w", err)
+	}
+	cfg, path, passFileSet, err := loadFrom(home)
+	if err != nil {
+		return cfg, fmt.Errorf("config %s: %w", path, err)
+	}
+	if !passFileSet {
+		cfg.KDBXPassFile = ""
+	}
+	return cfg, nil
+}
+
+// loadFrom implements Load and LoadStrict for the given home directory. It
+// also reports whether the config file itself set a non-empty kdbx_pass_file,
+// so callers can tell an operator's choice from a built-in default. That is
+// decided by decoding the key the same way the config is decoded (so key
+// spelling is matched identically, and a JSON null counts as unset), not by
+// scanning raw key names. On a read or parse failure it returns the pure
+// defaults together with the config path and the error, leaving the
+// warn-or-fail decision to the caller.
+func loadFrom(home string) (Config, string, bool, error) {
 	cfg := defaultConfigWithHome(home)
 	path := expandTildeWithHome(configPath, home)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		// File missing or unreadable — use defaults silently only when the
-		// error is "not found"; otherwise warn the caller.
-		if !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "Unable to read %s, using defaults! %v\n", path, err)
+		if os.IsNotExist(err) {
+			return cfg, path, false, nil
 		}
-		return cfg
+		return cfg, path, false, err
 	}
 
 	// Unmarshal into the defaults struct so that only fields present in the
 	// JSON document are overwritten; all others retain their default values.
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to read %s, using defaults! %v\n", path, err)
-		return defaultConfigWithHome(home)
+		return defaultConfigWithHome(home), path, false, err
 	}
+	var probe struct {
+		KDBXPassFile *string `json:"kdbx_pass_file"`
+	}
+	passFileSet := json.Unmarshal(data, &probe) == nil && probe.KDBXPassFile != nil && *probe.KDBXPassFile != ""
 
 	// Tilde-expand path fields that may have been supplied as "~/…" strings
 	// in the JSON file (defaultConfig() already returns absolute paths, but
 	// user-supplied values might use "~").
 	expandPathFieldsWithHome(&cfg, home)
-	return cfg
+	return cfg, path, passFileSet, nil
 }

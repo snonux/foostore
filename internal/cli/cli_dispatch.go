@@ -197,6 +197,13 @@ func (c *CLI) dispatchSimple(ctx context.Context, argv []string, cmd string) (in
 		// Print the fish shell integration script to stdout so users can source it:
 		//   foostore fish | source
 		return c.cmdFish(os.Stdout), "", true
+	case "read":
+		// "read" is the machine-facing command and is normally handled before
+		// the interactive CLI exists (see MachineReadArgs). Reaching it here
+		// means the interactive shell or an unexpected argv shape; it must
+		// never look like a successful read with empty output.
+		logMsg("read is the machine-facing command; run it directly: foostore read --help")
+		return readExitUsage, "", true
 	case "help":
 		printHelp()
 		return 0, "", true
