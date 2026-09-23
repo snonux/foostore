@@ -443,9 +443,9 @@ const maxCredentialBytes = 1 << 20
 //     readCredentialFile for the enforced permissions. A missing or lax file
 //     fails loudly.
 //
-// Both sources strip exactly one trailing line terminator ("\n" or "\r\n"),
-// so `echo pass > file` works and a passphrase that itself ends in other
-// whitespace keeps it.
+// The descriptor strips exactly one trailing line terminator ("\n" or
+// "\r\n"). The passphrase file strips all trailing CR and LF characters,
+// matching interactive KeePass unlock. Other whitespace is preserved.
 //
 // There is deliberately no $PIN or prompt fallback: an environment variable is
 // inherited by every child process and visible in /proc/<pid>/environ, and a
@@ -469,7 +469,11 @@ func readMachinePassphrase(cfg *config.Config) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("kdbx_pass_file (no %s set): %w", passphraseFDEnv, err)
 	}
-	return nonEmptyPassphrase(data, "the passphrase file")
+	pass := trimPassphraseFile(data)
+	if pass == "" {
+		return "", fmt.Errorf("the passphrase file delivered an empty passphrase")
+	}
+	return pass, nil
 }
 
 // nonEmptyPassphrase strips one trailing line terminator from data and

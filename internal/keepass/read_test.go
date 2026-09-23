@@ -204,6 +204,36 @@ func TestReadRawFailures(t *testing.T) {
 			want:      ErrNotFound,
 		},
 		{
+			name:      "absent title with literal backslash",
+			reference: `Machine/other\name`,
+			field:     "Password",
+			want:      ErrNotFound,
+		},
+		{
+			name:      "backslash spelling of existing path is still absent",
+			reference: `Machine\token`,
+			field:     "Password",
+			want:      ErrNotFound,
+		},
+		{
+			name:      "absent title with trailing space",
+			reference: "Machine/gone ",
+			field:     "Password",
+			want:      ErrNotFound,
+		},
+		{
+			name:      "space spelling of existing path is still absent",
+			reference: "Machine/token ",
+			field:     "Password",
+			want:      ErrNotFound,
+		},
+		{
+			name:      "backslash is not a traversal separator",
+			reference: `..\Machine/token`,
+			field:     "Password",
+			want:      ErrNotFound,
+		},
+		{
 			name:      "missing field on existing entry",
 			reference: "Machine/token",
 			field:     "UserName",
@@ -258,10 +288,10 @@ func TestReadRawFailures(t *testing.T) {
 			want:      ErrInvalidSelection,
 		},
 		{
-			name:      "whitespace padding is a non-canonical spelling",
+			name:      "whitespace padding is a different literal identity",
 			reference: " Machine/token ",
 			field:     "Password",
-			want:      ErrInvalidSelection,
+			want:      ErrNotFound,
 		},
 		{
 			name:      "attachment name absent from an existing entry is not found",
@@ -810,10 +840,9 @@ func TestInteractiveBinaryDataResolvesUnnamedAttachment(t *testing.T) {
 	t.Fatal("the unnamed attachment is not listed")
 }
 
-// TestSanitizeRelativePathIsSlashBased pins the OS-independent semantics the
-// exact-read canonical-form check relies on: descriptions always use "/", so
-// the leading-slash and traversal handling must not depend on the platform's
-// path separator (filepath.Clean would break both on Windows).
+// TestSanitizeRelativePathIsSlashBased pins the normalization used by other
+// KeePass paths. Exact reads deliberately use literal identity semantics
+// instead, including for backslashes and surrounding spaces.
 func TestSanitizeRelativePathIsSlashBased(t *testing.T) {
 	ok := map[string]string{
 		"Machine/token":    "Machine/token",

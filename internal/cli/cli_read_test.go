@@ -708,12 +708,23 @@ func TestReadMachineCredentialSourceFailures(t *testing.T) {
 		}
 	})
 
-	t.Run("passfile with an extra blank line is not silently trimmed", func(t *testing.T) {
-		// Exactly one terminator is stripped, so "testpass\n\n" is the wrong
-		// passphrase "testpass\n" rather than a lenient match.
+	t.Run("passfile with an extra blank line unlocks", func(t *testing.T) {
 		home := t.TempDir()
 		passFile := filepath.Join(home, "kdbx.pass")
 		if err := os.WriteFile(passFile, []byte(readTestPassphrase+"\n\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		writeReadConfig(t, home, `{"kdbx_pass_file": "`+passFile+`"}`)
+		code, out, _ := runReadIn(t, home, nil, argv)
+		if code != 0 || out != readTestSecret {
+			t.Fatalf("exit = %d, stdout = %q; want 0 and %q", code, out, readTestSecret)
+		}
+	})
+
+	t.Run("passfile with trailing space remains locked", func(t *testing.T) {
+		home := t.TempDir()
+		passFile := filepath.Join(home, "kdbx.pass")
+		if err := os.WriteFile(passFile, []byte(readTestPassphrase+" \n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		writeReadConfig(t, home, `{"kdbx_pass_file": "`+passFile+`"}`)
@@ -749,6 +760,43 @@ func TestReadMachineCredentialSourceFailures(t *testing.T) {
 		}
 	})
 
+}
+
+// TestPassphraseFileTrimmingMatchesUnlock checks the shared file rule through
+// both credential paths, including empty results and preserved whitespace.
+func TestPassphraseFileTrimmingMatchesUnlock(t *testing.T) {
+	unsetenv(t, passphraseFDEnv)
+	tests := []struct {
+		name, content, want string
+		wantErr             bool
+	}{
+		{"plain", "pw", "pw", false},
+		{"LF", "pw\n", "pw", false},
+		{"CRLF", "pw\r\n", "pw", false},
+		{"extra blank line", "pw\n\n", "pw", false},
+		{"bare CR", "pw\r", "pw", false},
+		{"mixed line endings", "pw\r\n\n\r", "pw", false},
+		{"interior newline", "p\nw\r\n", "p\nw", false},
+		{"trailing space", "pw \n", "pw ", false},
+		{"empty", "", "", true},
+		{"only line endings", "\r\n\n", "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "kdbx.pass")
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			interactive, interactiveErr := readPasswordFile(path)
+			machine, machineErr := readMachinePassphrase(&config.Config{KDBXPassFile: path})
+			if (interactiveErr != nil) != tc.wantErr || (machineErr != nil) != tc.wantErr {
+				t.Fatalf("interactive error = %v, machine error = %v; want error %t", interactiveErr, machineErr, tc.wantErr)
+			}
+			if interactive != tc.want || machine != tc.want {
+				t.Fatalf("interactive = %q, machine = %q; want %q", interactive, machine, tc.want)
+			}
+		})
+	}
 }
 
 // TestReadMachineDescriptorFailures covers unusable passphrase descriptors:
@@ -807,12 +855,14 @@ func TestReadMachineStoreFailures(t *testing.T) {
 		return []string{"--kdbx-path", path, "--field", "Password", ref}
 	}
 
-	t.Run("not found exits 4", func(t *testing.T) {
-		code, _, _ := runReadMachine(t, readTestPassphrase, field(dbPath, "Machine/missing"))
-		if code != readExitNotFound {
-			t.Fatalf("exit = %d, want %d (not found)", code, readExitNotFound)
-		}
-	})
+	for _, reference := range []string{"Machine/missing", `Machine/other\name`, `Machine\token`, "Machine/gone ", "Machine/token "} {
+		t.Run("not found: "+reference, func(t *testing.T) {
+			code, _, _ := runReadMachine(t, readTestPassphrase, field(dbPath, reference))
+			if code != readExitNotFound {
+				t.Fatalf("exit = %d, want %d (not found)", code, readExitNotFound)
+			}
+		})
+	}
 
 	t.Run("missing field exits 4", func(t *testing.T) {
 		code, _, _ := runReadMachine(t, readTestPassphrase,

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"path"
 	"strings"
 
 	gokeepasslib "github.com/tobischo/gokeepasslib/v3"
@@ -45,10 +46,10 @@ import (
 // reference is compared byte for byte — no trimming, separator rewriting or
 // path cleaning — so one spelling addresses exactly one entry and a stored
 // title that itself contains spaces or backslashes stays reachable.
-// A reference with no exact match that is merely a non-canonical spelling of
-// another path (padding, "//", "./", a leading "/") is a usage error, not a
-// not-found: not-found is the one class consumers may suppress, and a
-// mistyped spelling must not look like an absent secret.
+// A reference with no exact match that contains structural path syntax
+// ("//", "./", a leading "/", or traversal) is a usage error. Spaces and
+// backslashes remain literal even on a miss, so an absent identity containing
+// either reports not-found.
 //
 // Duplicate titles inside one group produce identical descriptions; such
 // stores are rejected with ErrAmbiguous instead of guessing.
@@ -130,15 +131,13 @@ func collectExact(rows *[]virtualEntry, g *gokeepasslib.Group, groupPath []strin
 	}
 }
 
-// notFoundOrNonCanonical classifies a reference that matched no entry: a
-// spelling that differs from its own cleaned form (or is unsafe, such as a
-// traversal) is an invalid selection, everything else is a plain not-found.
+// notFoundOrNonCanonical classifies a reference that matched no entry. Only
+// slash-based structural path syntax is invalid; path.Clean leaves literal
+// backslashes and spaces alone, so missing identities containing them stay
+// not-found.
 func notFoundOrNonCanonical(reference string) error {
-	cleaned, err := SanitizeRelativePath(reference)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidSelection, err)
-	}
-	if cleaned != reference {
+	cleaned := path.Clean(reference)
+	if strings.HasPrefix(reference, "/") || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || cleaned != reference {
 		return fmt.Errorf("%w: reference %q is not in canonical form (did you mean %q?); references match the stored identity exactly", ErrInvalidSelection, reference, cleaned)
 	}
 	return fmt.Errorf("%w: no entry %q", ErrNotFound, reference)

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// readPasswordFile reads a password from a file, trimming trailing newlines.
+// readPasswordFile reads a password from a file, trimming trailing CR and LF.
 // Returns an error when the file cannot be read or the result is empty.
 // Used by both migrate-kdbx and the KeePass backend initialisation
 // (cli_backend.go → readKeepassPassphrase).
@@ -16,11 +16,17 @@ func readPasswordFile(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading password file %q: %w", path, err)
 	}
-	pass := strings.TrimRight(string(data), "\r\n")
+	pass := trimPassphraseFile(data)
 	if pass == "" {
 		return "", fmt.Errorf("password file %q is empty", path)
 	}
 	return pass, nil
+}
+
+// trimPassphraseFile applies the same line-ending rule to interactive and
+// machine reads of kdbx_pass_file. Interior whitespace is part of the secret.
+func trimPassphraseFile(data []byte) string {
+	return strings.TrimRight(string(data), "\r\n")
 }
 
 // resolveHomeDir returns the current user's home directory.
