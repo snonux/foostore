@@ -10,7 +10,7 @@
 //
 // Exit-code contract (documented in README.md and readUsage):
 //
-//	0 success — stdout contains exactly the requested bytes
+//	0 success — stdout contains exactly the requested bytes, or usage for sole help
 //	1 unexpected runtime failure (including timeouts and signal cancellation)
 //	2 usage error (bad flags, missing reference, invalid selection)
 //	4 not found — the only code a machine consumer may suppress
@@ -72,7 +72,7 @@ func Read(ctx context.Context, argv []string) int {
 // carries only the requested bytes.
 func readCommand(ctx context.Context, argv []string, stdout io.Writer) int {
 	if wantsReadHelp(argv) {
-		// Help is the one non-secret payload allowed on stdout.
+		// Only a sole help argument may return usage on stdout with exit 0.
 		_, _ = fmt.Fprintln(stdout, readUsage)
 		return 0
 	}

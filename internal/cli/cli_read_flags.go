@@ -22,8 +22,8 @@ type readFlagSpec struct {
 	readOnly bool
 }
 
-// readFlagSpecs is the sole declaration of accepted read flags. Detection,
-// help scanning, and parsing all consult the same value and read-only traits.
+// readFlagSpecs declares the read flags used by command detection and parsing.
+// The sole help arguments, --help and -h, are handled separately.
 var readFlagSpecs = map[string]readFlagSpec{
 	"--backend":         {target: readBackendValue},
 	"--kdbx-path":       {target: readPathValue},
@@ -41,23 +41,11 @@ func isReadOnlyEqualsForm(arg string) bool {
 	return equals && known && spec.readOnly && spec.target != readNoValue
 }
 
-// wantsReadHelp reports whether argv asks for help. It is checked before flag
-// parsing so `foostore read --help` documents the contract instead of failing
-// as an unknown flag. Values of value flags (`--field -h`) and everything after
-// "--" are data, never a help request: usage text must not be mistaken for the
-// requested bytes.
+// wantsReadHelp accepts help only as the sole read argument. A mixed invocation
+// must go through normal parsing so it cannot exit successfully with usage text
+// where a machine caller expects secret bytes.
 func wantsReadHelp(argv []string) bool {
-	for i := 0; i < len(argv); i++ {
-		switch arg := argv[i]; {
-		case arg == "--":
-			return false
-		case readFlagSpecs[arg].target != readNoValue:
-			i++
-		case arg == "--help" || arg == "-h":
-			return true
-		}
-	}
-	return false
+	return len(argv) == 1 && (argv[0] == "--help" || argv[0] == "-h")
 }
 
 // parseReadFlags scans argv for the read command's flags. Value flags use the

@@ -392,12 +392,46 @@ func TestBuildBackendRejectsUnknownName(t *testing.T) {
 }
 
 func TestReadHelp(t *testing.T) {
-	var stdout bytes.Buffer
-	if code := readCommand(context.Background(), []string{"--help"}, &stdout); code != 0 {
-		t.Fatalf("--help exit = %d, want 0", code)
+	for _, help := range []string{"--help", "-h"} {
+		t.Run(help, func(t *testing.T) {
+			var stdout bytes.Buffer
+			if code := readCommand(context.Background(), []string{help}, &stdout); code != 0 {
+				t.Fatalf("%s exit = %d, want 0", help, code)
+			}
+			if !strings.Contains(stdout.String(), "usage: foostore read") {
+				t.Fatalf("%s output = %q, want the read usage", help, stdout.String())
+			}
+		})
 	}
-	if !strings.Contains(stdout.String(), "usage: foostore read") {
-		t.Fatalf("--help output = %q, want the read usage", stdout.String())
+}
+
+func TestReadHelpMixedWithArgumentsIsUsageError(t *testing.T) {
+	cases := [][]string{
+		{"--field", "Password", "-h"},
+		{"--field", "Password", "Machine/token", "--help"},
+		{"--help", "Machine/token"},
+		{"-h", "--field", "Password"},
+	}
+	for _, argv := range cases {
+		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+			code, stdout, stderr := runReadMachine(t, "", argv)
+			if code != readExitUsage || stdout != "" || !strings.Contains(stderr, "usage:") {
+				t.Fatalf("read %q = exit %d, stdout %q, stderr %q; want usage error with empty stdout", argv, code, stdout, stderr)
+			}
+		})
+	}
+}
+
+func TestReadHelpAfterTerminatorIsLiteralReference(t *testing.T) {
+	dbPath := createReadCLITestDB(t)
+	for _, reference := range []string{"--help", "-h"} {
+		t.Run(reference, func(t *testing.T) {
+			argv := []string{"--kdbx-path", dbPath, "--field", "Password", "--", reference}
+			code, stdout, stderr := runReadMachine(t, readTestPassphrase, argv)
+			if code != readExitNotFound || stdout != "" || strings.Contains(stderr, "usage:") {
+				t.Fatalf("read %q = exit %d, stdout %q, stderr %q; want not-found for a literal reference", argv, code, stdout, stderr)
+			}
+		})
 	}
 }
 
@@ -1109,15 +1143,15 @@ func TestReadExitForUnclassifiedIsGenericFailure(t *testing.T) {
 	}
 }
 
-func TestReadHelpIsNotTriggeredAfterTerminator(t *testing.T) {
+func TestReadHelpRequiresSoleArgument(t *testing.T) {
 	if wantsReadHelp([]string{"--", "--help"}) {
 		t.Fatal("an argument after -- is a reference, never a help request")
 	}
 	if wantsReadHelp([]string{"--field", "-h", "Machine/token"}) {
 		t.Fatal("a flag's value is data, never a help request")
 	}
-	if !wantsReadHelp([]string{"--field", "Password", "-h"}) {
-		t.Fatal("-h must request help")
+	if wantsReadHelp([]string{"--field", "Password", "-h"}) {
+		t.Fatal("mixed arguments must not request help")
 	}
 }
 
