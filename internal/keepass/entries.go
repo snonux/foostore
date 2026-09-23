@@ -12,6 +12,9 @@ import (
 	"github.com/snonux/foostore/internal/store"
 )
 
+// unnamedAttachment gives an empty binary reference a usable identity.
+const unnamedAttachment = "attachment"
+
 // virtualEntry is an in-memory row produced by flattening the KeePass group
 // tree. Each row corresponds to either a text entry or a binary attachment.
 type virtualEntry struct {
@@ -97,10 +100,6 @@ func collectEntry(rows *[]virtualEntry, e *gokeepasslib.Entry, groupPath []strin
 		})
 	}
 }
-
-// unnamedAttachment is the display name given to a binary reference whose
-// stored name is empty, so it still has a usable "Group/Title/name" identity.
-const unnamedAttachment = "attachment"
 
 // attachmentDisplayName maps a stored binary reference name onto the name used
 // in descriptions. Every place that compares a description-derived attachment

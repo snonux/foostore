@@ -42,6 +42,22 @@ func createReadTestDBVersion(t *testing.T, kdbx4 bool) string {
 	}
 	db.Credentials = gokeepasslib.NewPasswordCredentials("testpass")
 
+	addReadFixtureEntries(db)
+
+	tmp, err := os.CreateTemp(t.TempDir(), "read-*.kdbx")
+	if err != nil {
+		t.Fatalf("creating temp kdbx: %v", err)
+	}
+	defer func() { _ = tmp.Close() }()
+	if err := gokeepasslib.NewEncoder(tmp).Encode(db); err != nil {
+		t.Fatalf("encoding test db: %v", err)
+	}
+	return tmp.Name()
+}
+
+// addReadFixtureEntries populates the entries and attachment cases shared by
+// both KDBX versions.
+func addReadFixtureEntries(db *gokeepasslib.Database) {
 	root := gokeepasslib.NewGroup()
 	root.Name = "Root"
 
@@ -85,16 +101,6 @@ func createReadTestDBVersion(t *testing.T, kdbx4 bool) string {
 	attach := newAttachEdgeCaseGroup(db)
 	root.Groups = append(root.Groups, machine, dupes, attach)
 	db.Content.Root.Groups = []gokeepasslib.Group{root}
-
-	tmp, err := os.CreateTemp(t.TempDir(), "read-*.kdbx")
-	if err != nil {
-		t.Fatalf("creating temp kdbx: %v", err)
-	}
-	defer func() { _ = tmp.Close() }()
-	if err := gokeepasslib.NewEncoder(tmp).Encode(db); err != nil {
-		t.Fatalf("encoding test db: %v", err)
-	}
-	return tmp.Name()
 }
 
 // newAttachEdgeCaseGroup builds the "Attach" group: an unnamed attachment, two
@@ -197,120 +203,25 @@ func TestReadRawFailures(t *testing.T) {
 		field     string
 		want      error
 	}{
-		{
-			name:      "unknown entry",
-			reference: "Machine/missing",
-			field:     "Password",
-			want:      ErrNotFound,
-		},
-		{
-			name:      "absent title with literal backslash",
-			reference: `Machine/other\name`,
-			field:     "Password",
-			want:      ErrNotFound,
-		},
-		{
-			name:      "backslash spelling of existing path is still absent",
-			reference: `Machine\token`,
-			field:     "Password",
-			want:      ErrNotFound,
-		},
-		{
-			name:      "absent title with trailing space",
-			reference: "Machine/gone ",
-			field:     "Password",
-			want:      ErrNotFound,
-		},
-		{
-			name:      "space spelling of existing path is still absent",
-			reference: "Machine/token ",
-			field:     "Password",
-			want:      ErrNotFound,
-		},
-		{
-			name:      "backslash is not a traversal separator",
-			reference: `..\Machine/token`,
-			field:     "Password",
-			want:      ErrNotFound,
-		},
-		{
-			name:      "missing field on existing entry",
-			reference: "Machine/token",
-			field:     "UserName",
-			want:      ErrNotFound,
-		},
-		{
-			name:      "duplicate titles are ambiguous",
-			reference: "Dupes/dupe",
-			field:     "Password",
-			want:      ErrAmbiguous,
-		},
-		{
-			name:      "entry reference without field is invalid",
-			reference: "Machine/token",
-			field:     "",
-			want:      ErrInvalidSelection,
-		},
-		{
-			name:      "field on attachment reference is invalid",
-			reference: "Machine/blob/blob.bin",
-			field:     "Password",
-			want:      ErrInvalidSelection,
-		},
-		{
-			name:      "empty reference is invalid",
-			reference: "",
-			field:     "Password",
-			want:      ErrInvalidSelection,
-		},
-		{
-			name:      "traversal reference is invalid",
-			reference: "../Machine/token",
-			field:     "Password",
-			want:      ErrInvalidSelection,
-		},
-		{
-			name:      "dot segments are a non-canonical spelling, not an alias",
-			reference: "./Machine/./token",
-			field:     "Password",
-			want:      ErrInvalidSelection,
-		},
-		{
-			name:      "leading slash is a non-canonical spelling",
-			reference: "/Machine/token",
-			field:     "Password",
-			want:      ErrInvalidSelection,
-		},
-		{
-			name:      "doubled separator is a non-canonical spelling",
-			reference: "Machine//token",
-			field:     "Password",
-			want:      ErrInvalidSelection,
-		},
-		{
-			name:      "whitespace padding is a different literal identity",
-			reference: " Machine/token ",
-			field:     "Password",
-			want:      ErrNotFound,
-		},
-		{
-			name:      "attachment name absent from an existing entry is not found",
-			reference: "Machine/token/nothing.bin",
-			field:     "",
-			want:      ErrNotFound,
-		},
-		{
-			name:      "two attachments with one name are ambiguous",
-			reference: "Attach/twins/same.bin",
-			field:     "",
-			want:      ErrAmbiguous,
-		},
-		{
-			name:      "dangling attachment reference is corruption",
-			reference: "Attach/dangling/gone.bin",
-			field:     "",
-			want:      ErrCorrupt,
-		},
+		{"unknown entry", "Machine/missing", "Password", ErrNotFound},
+		{"absent title with literal backslash", `Machine/other\name`, "Password", ErrNotFound},
+		{"backslash spelling of existing path is still absent", `Machine\token`, "Password", ErrNotFound},
+		{"absent title with trailing space", "Machine/gone ", "Password", ErrNotFound},
+		{"space spelling of existing path is still absent", "Machine/token ", "Password", ErrNotFound},
+		{"backslash is not a traversal separator", `..\Machine/token`, "Password", ErrNotFound},
+		{"missing field on existing entry", "Machine/token", "UserName", ErrNotFound},
+		{"duplicate titles are ambiguous", "Dupes/dupe", "Password", ErrAmbiguous},
+		{"entry reference without field is invalid", "Machine/token", "", ErrInvalidSelection},
+		{"field on attachment reference is invalid", "Machine/blob/blob.bin", "Password", ErrInvalidSelection},
+		{"empty reference is invalid", "", "Password", ErrInvalidSelection},
+		{"traversal reference is invalid", "../Machine/token", "Password", ErrInvalidSelection},
+		{"dot segments are a non-canonical spelling, not an alias", "./Machine/./token", "Password", ErrInvalidSelection},
+		{"leading slash is a non-canonical spelling", "/Machine/token", "Password", ErrInvalidSelection},
+		{"doubled separator is a non-canonical spelling", "Machine//token", "Password", ErrInvalidSelection},
+		{"whitespace padding is a different literal identity", " Machine/token ", "Password", ErrNotFound},
+		{"attachment name absent from an existing entry is not found", "Machine/token/nothing.bin", "", ErrNotFound},
+		{"two attachments with one name are ambiguous", "Attach/twins/same.bin", "", ErrAmbiguous},
+		{"dangling attachment reference is corruption", "Attach/dangling/gone.bin", "", ErrCorrupt},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -319,6 +230,29 @@ func TestReadRawFailures(t *testing.T) {
 				t.Fatalf("ReadRaw(%q, %q) error = %v, want %v", tc.reference, tc.field, err, tc.want)
 			}
 		})
+	}
+}
+
+func TestReadRawSelectionErrorsStayCLIIndependent(t *testing.T) {
+	b := newReadTestBackend(t, createReadTestDB(t))
+	cases := []struct {
+		reference, field string
+		want             error
+	}{
+		{"Machine/token", "", ErrMissingField},
+		{"Machine/blob/blob.bin", "Password", ErrFieldOnAttachment},
+	}
+	for _, tc := range cases {
+		_, err := b.ReadRaw(context.Background(), tc.reference, tc.field)
+		if err == nil {
+			t.Fatalf("ReadRaw(%q, %q) unexpectedly succeeded", tc.reference, tc.field)
+		}
+		if !errors.Is(err, ErrInvalidSelection) || !errors.Is(err, tc.want) {
+			t.Errorf("ReadRaw(%q, %q) = %v; want invalid selection and %v", tc.reference, tc.field, err, tc.want)
+		}
+		if strings.Contains(err.Error(), "--field") {
+			t.Errorf("KeePass error contains CLI flag: %v", err)
+		}
 	}
 }
 

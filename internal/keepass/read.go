@@ -24,6 +24,13 @@ import (
 	gokeepasslib "github.com/tobischo/gokeepasslib/v3"
 )
 
+// gzipHeaderLen is the length of the fixed header emitted by gzip.NewWriter;
+// gokeepasslib never emits optional header fields.
+const gzipHeaderLen = 10
+
+// gzipTrailerLen is the CRC32 and ISIZE trailer at the end of a gzip stream.
+const gzipTrailerLen = 8
+
 // ReadRaw resolves the exact entry identified by description and returns its
 // raw bytes: the content of the named field when field is non-empty, or the
 // raw attachment bytes when the reference selects an attachment row
@@ -72,13 +79,13 @@ func (b *Backend) ReadRaw(ctx context.Context, description, field string) ([]byt
 
 	if ve.isBinary {
 		if field != "" {
-			return nil, fmt.Errorf("%w: --field cannot select a field of attachment reference %q; drop --field to read the raw attachment bytes", ErrInvalidSelection, description)
+			return nil, fmt.Errorf("%w: %w: attachment reference %q cannot select a field", ErrInvalidSelection, ErrFieldOnAttachment, description)
 		}
 		return b.attachmentBytes(&ve)
 	}
 
 	if field == "" {
-		return nil, fmt.Errorf("%w: entry reference %q requires --field NAME (for example --field Password); attachment references select raw bytes without --field", ErrInvalidSelection, description)
+		return nil, fmt.Errorf("%w: %w: entry reference %q requires a field name", ErrInvalidSelection, ErrMissingField, description)
 	}
 
 	value, count := lookupEntryField(ve.entry, field)
@@ -242,14 +249,6 @@ func (b *Backend) binaryContent(bin *gokeepasslib.Binary) ([]byte, error) {
 
 	return gunzipExact(raw)
 }
-
-// gzipHeaderLen is the length of the fixed gzip header; gzip.NewWriter (used by
-// gokeepasslib, and therefore by foostore itself) never emits optional header
-// fields.
-const gzipHeaderLen = 10
-
-// gzipTrailerLen is the CRC32 + ISIZE trailer that ends a gzip stream.
-const gzipTrailerLen = 8
 
 // gunzipExact decompresses a gzip payload, returning exact bytes or an error.
 //

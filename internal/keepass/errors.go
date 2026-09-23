@@ -40,10 +40,16 @@ var (
 	ErrIO = errors.New("keepass: store I/O error")
 
 	// ErrInvalidSelection reports a request that cannot be answered as
-	// asked: empty or unsafe references, --field on an attachment
-	// reference, or a missing --field on an entry reference. Callers treat
+	// asked: empty or unsafe references, a field on an attachment
+	// reference, or a missing field name on an entry reference. Callers treat
 	// this as a usage error, not a store problem.
 	ErrInvalidSelection = errors.New("keepass: invalid field or attachment selection")
+
+	// ErrFieldOnAttachment identifies an attachment selected with a field.
+	ErrFieldOnAttachment = errors.New("keepass: attachment does not have fields")
+
+	// ErrMissingField identifies an entry selected without a field name.
+	ErrMissingField = errors.New("keepass: entry field name required")
 )
 
 // classifyOpenError maps a KeePass database open/decode failure onto the

@@ -579,6 +579,29 @@ func TestReadMachineKeyFile(t *testing.T) {
 	})
 }
 
+func TestReadMachineSelectionHints(t *testing.T) {
+	dbPath := createReadCLITestDB(t)
+	cases := []struct {
+		name, reference, field, hint string
+	}{
+		{"entry needs field", "Machine/token", "", "specify --field NAME"},
+		{"attachment rejects field", "Machine/blob/blob.bin", "Password", "drop --field"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			argv := []string{"--kdbx-path", dbPath}
+			if tc.field != "" {
+				argv = append(argv, "--field", tc.field)
+			}
+			argv = append(argv, tc.reference)
+			code, out, stderr := runReadMachine(t, readTestPassphrase, argv)
+			if code != readExitUsage || out != "" || !strings.Contains(stderr, tc.hint) {
+				t.Errorf("exit = %d, stdout = %q, stderr = %q; want usage and hint %q", code, out, stderr, tc.hint)
+			}
+		})
+	}
+}
+
 func TestReadMachineCredentialFailures(t *testing.T) {
 	dbPath := createReadCLITestDB(t)
 	argv := []string{"--kdbx-path", dbPath, "--field", "Password", "Machine/token"}
@@ -707,6 +730,13 @@ func TestReadMachineCredentialSourceFailures(t *testing.T) {
 			t.Fatalf("exit = %d, want %d (locked)", code, readExitLocked)
 		}
 	})
+}
+
+// TestReadMachinePassfileContents covers the exact contents accepted by
+// protected passphrase files.
+func TestReadMachinePassfileContents(t *testing.T) {
+	dbPath := createReadCLITestDB(t)
+	argv := []string{"--kdbx-path", dbPath, "--field", "Password", "Machine/token"}
 
 	t.Run("passfile with an extra blank line unlocks", func(t *testing.T) {
 		home := t.TempDir()

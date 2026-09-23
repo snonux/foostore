@@ -446,7 +446,10 @@ func TestLoadStrict(t *testing.T) {
 			}
 		}
 	})
+}
 
+// TestLoadStrictErrors covers strict config spelling and file failures.
+func TestLoadStrictErrors(t *testing.T) {
 	t.Run("key spelling is matched the way the config is decoded", func(t *testing.T) {
 		dir := t.TempDir()
 		t.Setenv("HOME", dir)
