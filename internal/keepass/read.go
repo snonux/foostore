@@ -60,16 +60,16 @@ const gzipTrailerLen = 8
 // reference. Forms that Clean to ".." without a "../" prefix (e.g. "./..",
 // "foo/../..") only drop a trailing "/.." title segment and are not-found,
 // so Clean never hints onto a stored top-level "..". A Clean rewrite of an
-// existing identity ("./Group/Title", "Group//Title", or "./" / ".//" when a
+// existing identity ("./Group/Title", "Group//Title", or "./" / ".//" / "./." when a
 // top-level "." entry exists) is a usage error with a hint naming the stored
 // form when exactly one row matches; when several rows share that cleaned
 // identity the miss is ErrAmbiguous — the same exit class as the canonical
 // spelling. Clean that only strips a trailing "/." or "/.." title segment
 // names a different identity from the parent, so an absent literal reports
-// not-found even if the Clean-collapsed parent exists — unless the
-// slash-trimmed reference itself is stored (e.g. "S/./" → "S/."), in which
-// case the miss is usage+hint or ErrAmbiguous for that identity. Spaces and
-// backslashes remain literal on a miss.
+// not-found even if the Clean-collapsed parent exists — unless a restored
+// candidate is stored (e.g. "S/./" → "S/.", "./S/." → "S/.", "./." → "."),
+// in which case the miss is usage+hint or ErrAmbiguous for that identity.
+// Spaces and backslashes remain literal on a miss.
 //
 // Duplicate titles inside one group produce identical descriptions; such
 // stores are rejected with ErrAmbiguous instead of guessing.
@@ -178,11 +178,46 @@ func countExactIdentity(rows []virtualEntry, description string) int {
 // is a literal "." or ".." (after trimming trailing slashes). path.Clean
 // collapses those onto the parent path, but a title of "." or ".." is a
 // distinct identity from that parent, so a miss must stay not-found rather
-// than hinting the Clean-collapsed form — unless the slash-trimmed reference
-// itself matches a stored identity (e.g. "S/./" → "S/.").
+// than hinting the Clean-collapsed form — unless a restored candidate matches
+// a stored identity (e.g. "S/./" → "S/.", "./S/." → "S/.", "./." → ".").
 func dropsTrailingDotTitleSegment(reference string) bool {
 	trimmed := strings.TrimRight(reference, "/")
 	return strings.HasSuffix(trimmed, "/.") || strings.HasSuffix(trimmed, "/..")
+}
+
+// restoreDotTitleIdentities returns candidate stored identities for a
+// reference that Clean-collapsed a trailing "/." or "/.." title segment.
+// Order: slash-trimmed reference first ("S/./" → "S/."), then Clean's parent
+// with the trailing segment restored ("./S/." → "S/."), or "." itself when
+// Clean lands on "." from a "/." collapse ("./." / "././" → "."). Never
+// returns the Clean-collapsed parent alone (absent "X/." with existing "X"
+// stays not-found) and never restores onto ".." (Clean must not hint a
+// stored top-level "..").
+func restoreDotTitleIdentities(reference, cleaned string) []string {
+	trimmed := strings.TrimRight(reference, "/")
+	cands := []string{trimmed}
+
+	var suffix string
+	switch {
+	case strings.HasSuffix(trimmed, "/.."):
+		suffix = "/.."
+	case strings.HasSuffix(trimmed, "/."):
+		suffix = "/."
+	default:
+		return cands
+	}
+
+	var restored string
+	switch {
+	case cleaned == "." && suffix == "/.":
+		restored = "."
+	case cleaned != "." && cleaned != ".." && cleaned != "":
+		restored = cleaned + suffix
+	}
+	if restored != "" && restored != trimmed {
+		cands = append(cands, restored)
+	}
+	return cands
 }
 
 // notFoundOrNonCanonical classifies a reference that matched no entry.
@@ -195,15 +230,15 @@ func dropsTrailingDotTitleSegment(reference string) bool {
 // stay not-found; Clean therefore never hints onto a stored top-level "..".
 // A Clean rewrite onto a stored identity is a usage error with a hint when
 // exactly one row matches — including when Clean lands on a present
-// top-level "." (e.g. "./", ".//" → ".") — and ErrAmbiguous when several
+// top-level "." (e.g. "./", ".//", "./." → ".") — and ErrAmbiguous when several
 // rows share that cleaned identity (same class as the canonical spelling).
 // Clean that only strips a trailing "/." or "/.." title segment onto a
-// different identity (Machine/.., X/.) stays not-found when the slash-trimmed
-// form is also absent; when the slash-trimmed form is stored (S/./ → S/.),
-// the miss is usage+hint or ErrAmbiguous for that identity instead of the
-// Clean-collapsed parent. The "../" usage arm already claims "../"-prefixed
-// forms before the hint arm. path.Clean leaves literal backslashes and spaces
-// alone, so those misses stay not-found.
+// different identity (Machine/.., X/.) stays not-found when no restored
+// candidate is stored; when a restored candidate is stored (S/./ → S/.,
+// ./S/. → S/., ./. → .), the miss is usage+hint or ErrAmbiguous for that
+// identity instead of the Clean-collapsed parent. The "../" usage arm already
+// claims "../"-prefixed forms before the hint arm. path.Clean leaves literal
+// backslashes and spaces alone, so those misses stay not-found.
 func notFoundOrNonCanonical(reference string, rows []virtualEntry) error {
 	cleaned := path.Clean(reference)
 	if !isStructuralPathSyntax(reference, cleaned) {
@@ -223,19 +258,20 @@ func notFoundOrNonCanonical(reference string, rows []virtualEntry) error {
 	// stored form (including present top-level "."), ambiguous cleaned
 	// identities share the canonical ErrAmbiguous exit class; a single match
 	// hints the stored spelling. When Clean only dropped a trailing "." / ".."
-	// title segment, prefer the slash-trimmed reference if that identity is
-	// stored; otherwise stay not-found rather than hinting the parent.
+	// title segment, try restored candidates (slash-trim, restored trailing
+	// segment, or "." for "./."-style collapses); otherwise stay not-found
+	// rather than hinting the parent.
 	if cleaned != reference {
 		if dropsTrailingDotTitleSegment(reference) {
-			trimmed := strings.TrimRight(reference, "/")
-			switch n := countExactIdentity(rows, trimmed); {
-			case n > 1:
-				return fmt.Errorf("%w: %d entries share the identity %q; rename the duplicates so identities stay unique", ErrAmbiguous, n, trimmed)
-			case n == 1:
-				return fmt.Errorf("%w: reference %q is not in canonical form (did you mean %q?); references match the stored identity exactly", ErrInvalidSelection, reference, trimmed)
-			default:
-				return fmt.Errorf("%w: no entry %q", ErrNotFound, reference)
+			for _, cand := range restoreDotTitleIdentities(reference, cleaned) {
+				switch n := countExactIdentity(rows, cand); {
+				case n > 1:
+					return fmt.Errorf("%w: %d entries share the identity %q; rename the duplicates so identities stay unique", ErrAmbiguous, n, cand)
+				case n == 1:
+					return fmt.Errorf("%w: reference %q is not in canonical form (did you mean %q?); references match the stored identity exactly", ErrInvalidSelection, reference, cand)
+				}
 			}
+			return fmt.Errorf("%w: no entry %q", ErrNotFound, reference)
 		}
 		switch n := countExactIdentity(rows, cleaned); {
 		case n > 1:

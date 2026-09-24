@@ -149,7 +149,7 @@ func addReadFixtureEntries(db *gokeepasslib.Database) {
 	SetEntryField(&sEntry, "Password", "s-plain-value")
 
 	// Top-level entry titled ".": exact "." reads; Clean respellings "./" /
-	// ".//" must hint the stored identity rather than report not-found.
+	// ".//" / "./." must hint the stored identity rather than report not-found.
 	dotTop := gokeepasslib.NewEntry()
 	SetEntryField(&dotTop, "Title", ".")
 	SetEntryField(&dotTop, "Password", "top-dot-value")
@@ -283,6 +283,11 @@ func TestReadRawFailures(t *testing.T) {
 		{"trailing-slash form of present S/. hints that identity", "S/./", "Password", ErrInvalidSelection},
 		{"extra trailing slashes on present S/. still hint", "S/.//", "Password", ErrInvalidSelection},
 		{"trailing-slash form of present S/.. hints that identity", "S/../", "Password", ErrInvalidSelection},
+		{"leading ./ on present S/. hints that identity", "./S/.", "Password", ErrInvalidSelection},
+		{"leading ./ and trailing slash on present S/. still hint", "./S/./", "Password", ErrInvalidSelection},
+		{"absent ./X/. is not-found when only X exists", "./X/.", "Password", ErrNotFound},
+		{"./. respelling of present top-level '.' is usage with hint", "./.", "Password", ErrInvalidSelection},
+		{"././ respelling of present top-level '.' is usage with hint", "././", "Password", ErrInvalidSelection},
 		{"absent Machine/token/./ is not-found when only Machine/token exists", "Machine/token/./", "Password", ErrNotFound},
 		{"absent rewrite that cleans to nothing stored is not-found", "Machine//gone", "Password", ErrNotFound},
 		{"missing field on existing entry", "Machine/token", "UserName", ErrNotFound},
@@ -317,10 +322,11 @@ func TestReadRawFailures(t *testing.T) {
 // TestNotFoundOrNonCanonicalMessages pins ef2 message rules: absolute/traversal
 // arms name the top-level-group contract without a tautological "did you mean";
 // Clean rewrites of an existing identity still hint the stored form — including
-// "./" / ".//" when a top-level "." entry is present; Clean collapses that only
-// drop a trailing "/." or "/.." stay not-found without either hint phrase when
-// the slash-trimmed form is also absent; trailing-slash forms of a present
-// "/." / "/.." identity (S/./) hint that identity, not the Clean parent.
+// "./" / ".//" / "./." when a top-level "." entry is present; Clean collapses
+// that only drop a trailing "/." or "/.." stay not-found without either hint
+// phrase when no restored candidate is stored; trailing-slash and leading-"./"
+// forms of a present "/." / "/.." identity (S/./, ./S/.) hint that identity,
+// not the Clean parent.
 // Clean respellings onto an ambiguous identity share ErrAmbiguous with the
 // canonical spelling (no usage+hint exit class).
 func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
@@ -376,7 +382,7 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		t.Fatalf("rewrite of ./S should hint stored S: %q", msg)
 	}
 
-	for _, ref := range []string{"./", ".//", ".///"} {
+	for _, ref := range []string{"./", ".//", ".///", "./.", "././", ".//."} {
 		_, err := b.ReadRaw(ctx, ref, "Password")
 		if !errors.Is(err, ErrInvalidSelection) {
 			t.Fatalf("ReadRaw(%q) error = %v, want ErrInvalidSelection", ref, err)
@@ -410,7 +416,7 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 	// reference, so they stay not-found (unlike ../. / ../foo/.. above).
 	// X/. and Machine/token/./ drop a trailing "/." onto an existing parent
 	// while the slash-trimmed identity is absent — still not-found, no hint.
-	notFoundNoHint := []string{"Machine/..", "./..", "foo/../..", "X/.", "Machine/token/./"}
+	notFoundNoHint := []string{"Machine/..", "./..", "foo/../..", "X/.", "./X/.", "Machine/token/./"}
 	for _, ref := range notFoundNoHint {
 		_, err := b.ReadRaw(ctx, ref, "Password")
 		if !errors.Is(err, ErrNotFound) {
@@ -426,13 +432,17 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 	}
 
 	// Trailing-slash forms of a present "/." / "/.." identity hint that
-	// identity (not the Clean-collapsed parent "S").
+	// identity (not the Clean-collapsed parent "S"). Leading "./" respellings
+	// of present "S/." restore the same way; absent "./X/." is covered in
+	// notFoundNoHint above.
 	for _, tc := range []struct {
 		ref, wantHint string
 	}{
 		{"S/./", "S/."},
 		{"S/.//", "S/."},
 		{"S/../", "S/.."},
+		{"./S/.", "S/."},
+		{"./S/./", "S/."},
 	} {
 		_, err := b.ReadRaw(ctx, tc.ref, "Password")
 		if !errors.Is(err, ErrInvalidSelection) {
