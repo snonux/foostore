@@ -283,6 +283,10 @@ func TestReadRawFailures(t *testing.T) {
 		{"trailing-slash form of present S/. hints that identity", "S/./", "Password", ErrInvalidSelection},
 		{"extra trailing slashes on present S/. still hint", "S/.//", "Password", ErrInvalidSelection},
 		{"trailing-slash form of present S/.. hints that identity", "S/../", "Password", ErrInvalidSelection},
+		{"empty-segment form of present S/.. hints that identity", "S//..", "Password", ErrInvalidSelection},
+		{"empty-segment trailing-slash form of present S/.. still hints", "S//../", "Password", ErrInvalidSelection},
+		{"leading ./ and empty segment on present S/.. still hints", ".//S/..", "Password", ErrInvalidSelection},
+		{"./S//.. empty-segment form of present S/.. still hints", "./S//..", "Password", ErrInvalidSelection},
 		{"leading ./ on present S/. hints that identity", "./S/.", "Password", ErrInvalidSelection},
 		{"leading ./ and trailing slash on present S/. still hint", "./S/./", "Password", ErrInvalidSelection},
 		{"absent ./X/. is not-found when only X exists", "./X/.", "Password", ErrNotFound},
@@ -325,9 +329,9 @@ func TestReadRawFailures(t *testing.T) {
 // "./" / ".//" / "./." when a top-level "." entry is present; Clean collapses
 // that only drop a trailing "/." or "/.." stay not-found without either hint
 // phrase when no restored candidate is stored; trailing-slash and leading-"./"
-// forms of a present "/." / "/.." identity (S/./, ./S/., ./S/..) hint that
-// identity, not the Clean parent; absent nested "/.." (S/B/..) stays not-found
-// even when a shorter present "/.." (S/..) exists.
+// forms of a present "/." / "/.." identity (S/./, ./S/., ./S/.., S//..) hint
+// that identity, not the Clean parent; absent nested "/.." (S/B/..) stays
+// not-found even when a shorter present "/.." (S/..) exists.
 // Clean respellings onto an ambiguous identity share ErrAmbiguous with the
 // canonical spelling (no usage+hint exit class).
 func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
@@ -433,9 +437,9 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 	}
 
 	// Trailing-slash forms of a present "/." / "/.." identity hint that
-	// identity (not the Clean-collapsed parent "S"). Leading "./" respellings
-	// of present "S/." and "S/.." restore the same way; absent "./X/." is
-	// covered in notFoundNoHint above.
+	// identity (not the Clean-collapsed parent "S"). Leading "./" and empty-
+	// segment ("//") respellings of present "S/." and "S/.." restore the
+	// same way; absent "./X/." is covered in notFoundNoHint above.
 	for _, tc := range []struct {
 		ref, wantHint string
 	}{
@@ -447,6 +451,10 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		{"./S/..", "S/.."},
 		{"./S/../", "S/.."},
 		{"././S/..", "S/.."},
+		{"S//..", "S/.."},
+		{"S//../", "S/.."},
+		{".//S/..", "S/.."},
+		{"./S//..", "S/.."},
 	} {
 		_, err := b.ReadRaw(ctx, tc.ref, "Password")
 		if !errors.Is(err, ErrInvalidSelection) {
@@ -464,7 +472,7 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 	// Absent nested "/.." under a group that has a present shorter "/.."
 	// identity must stay not-found — never "did you mean \"S/..\"?" from a
 	// cleaned+"/.." reconstruction (parent-collapse hole).
-	for _, ref := range []string{"S/B/..", "S/B/../", "./S/B/..", "./S/B/../"} {
+	for _, ref := range []string{"S/B/..", "S/B/../", "./S/B/..", "./S/B/../", "S//B/..", ".//S/B/.."} {
 		_, err := b.ReadRaw(ctx, ref, "Password")
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("ReadRaw(%q) error = %v, want ErrNotFound", ref, err)

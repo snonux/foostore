@@ -68,9 +68,9 @@ const gzipTrailerLen = 8
 // names a different identity from the parent, so an absent literal reports
 // not-found even if the Clean-collapsed parent exists — unless a restored
 // candidate is stored (e.g. "S/./" → "S/.", "./S/." → "S/.", "./." → ".",
-// "./S/.." → "S/.."), in which case the miss is usage+hint or ErrAmbiguous
-// for that identity. Absent nested "/.." forms ("A/B/..") stay not-found
-// even when a shorter present "/.." identity ("A/..") exists.
+// "./S/.." → "S/..", "S//.." → "S/.."), in which case the miss is usage+hint
+// or ErrAmbiguous for that identity. Absent nested "/.." forms ("A/B/..")
+// stay not-found even when a shorter present "/.." identity ("A/..") exists.
 // Spaces and backslashes remain literal on a miss.
 //
 // Duplicate titles inside one group produce identical descriptions; such
@@ -192,19 +192,21 @@ func dropsTrailingDotTitleSegment(reference string) bool {
 // Order: slash-trimmed reference first ("S/./" → "S/.", "S/../" → "S/..").
 // For "/." only: also restore Clean's parent with "/." reattached
 // ("./S/." → "S/."), or "." when Clean lands on "." ("./." / "././" → ".").
-// For "/..": never reconstruct via cleaned+"/.." (absent "A/B/.." must not
-// hint a present "A/.."); leading-"./" respellings of a present "…/.."
-// identity recover by stripping leading "./" segments from the trimmed form
-// ("./S/.." → "S/.."). Never returns the Clean-collapsed parent alone
-// (absent "X/." with existing "X" stays not-found) and never surfaces bare
-// ".." ("./.." stays not-found even if a top-level ".." identity exists).
+// For "/..": collapse empty segments then strip leading "./" so "S//.."
+// and ".//S/.." become "S/.." when that identity is present; never
+// reconstruct via cleaned+"/.." (absent "A/B/.." must not hint a present
+// "A/.."). Never returns the Clean-collapsed parent alone (absent "X/."
+// with existing "X" stays not-found) and never surfaces bare ".."
+// ("./.." stays not-found even if a top-level ".." identity exists).
 func restoreDotTitleIdentities(reference, cleaned string) []string {
 	trimmed := strings.TrimRight(reference, "/")
 	cands := []string{trimmed}
 
 	switch {
 	case strings.HasSuffix(trimmed, "/.."):
-		if normalized := stripLeadingDotSlash(trimmed); normalized != trimmed && normalized != ".." {
+		// Collapse "//" then strip leading "./" — not cleaned+"/..", which
+		// would turn absent nested "S/B/.." into a wrong hint for "S/..".
+		if normalized := stripLeadingDotSlash(collapseEmptySegments(trimmed)); normalized != trimmed && normalized != ".." {
 			cands = append(cands, normalized)
 		}
 		return cands
@@ -225,6 +227,16 @@ func restoreDotTitleIdentities(reference, cleaned string) []string {
 	default:
 		return cands
 	}
+}
+
+// collapseEmptySegments replaces runs of "//" with a single "/" so empty
+// path segments do not block an exact restore of a present "…/.." identity
+// ("S//.." → "S/.."). It does not interpret "." or ".." segments.
+func collapseEmptySegments(s string) string {
+	for strings.Contains(s, "//") {
+		s = strings.ReplaceAll(s, "//", "/")
+	}
+	return s
 }
 
 // stripLeadingDotSlash removes repeated leading "./" segments so a
@@ -252,13 +264,13 @@ func stripLeadingDotSlash(s string) string {
 // Clean that only strips a trailing "/." or "/.." title segment onto a
 // different identity (Machine/.., X/.) stays not-found when no restored
 // candidate is stored; when a restored candidate is stored (S/./ → S/.,
-// ./S/. → S/., ./. → ., ./S/.. → S/..), the miss is usage+hint or
-// ErrAmbiguous for that identity instead of the Clean-collapsed parent.
-// Nested absent "/.." forms (A/B/..) stay not-found even if a shorter
-// present "/.." identity (A/..) exists — restore never rebuilds via
-// cleaned+"/..". The "../" usage arm already claims "../"-prefixed forms
-// before the hint arm. path.Clean leaves literal backslashes and spaces
-// alone, so those misses stay not-found.
+// ./S/. → S/., ./. → ., ./S/.. → S/.., S//.. → S/..), the miss is
+// usage+hint or ErrAmbiguous for that identity instead of the
+// Clean-collapsed parent. Nested absent "/.." forms (A/B/..) stay
+// not-found even if a shorter present "/.." identity (A/..) exists —
+// restore never rebuilds via cleaned+"/..". The "../" usage arm already
+// claims "../"-prefixed forms before the hint arm. path.Clean leaves
+// literal backslashes and spaces alone, so those misses stay not-found.
 func notFoundOrNonCanonical(reference string, rows []virtualEntry) error {
 	cleaned := path.Clean(reference)
 	if !isStructuralPathSyntax(reference, cleaned) {
@@ -279,8 +291,9 @@ func notFoundOrNonCanonical(reference string, rows []virtualEntry) error {
 	// identities share the canonical ErrAmbiguous exit class; a single match
 	// hints the stored spelling. When Clean only dropped a trailing "." / ".."
 	// title segment, try restored candidates (slash-trim; for "/." also
-	// cleaned+"/." or "."; for "/.." strip leading "./" — never cleaned+"/..");
-	// otherwise stay not-found rather than hinting the parent.
+	// cleaned+"/." or "."; for "/.." collapse "//" then strip leading "./" —
+	// never cleaned+"/.."); otherwise stay not-found rather than hinting
+	// the parent.
 	if cleaned != reference {
 		if dropsTrailingDotTitleSegment(reference) {
 			for _, cand := range restoreDotTitleIdentities(reference, cleaned) {
