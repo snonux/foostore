@@ -53,13 +53,14 @@ const gzipTrailerLen = 8
 // reference is compared byte for byte — no trimming, separator rewriting or
 // path cleaning — so one spelling addresses exactly one entry and a stored
 // title that itself contains spaces or backslashes stays reachable.
-// A reference with no exact match that is an absolute path, bare "." / "..",
-// or whose reference or Clean result is still prefixed with "../" is a usage
-// error — including forms like "../." and "../foo/.." that Clean to ".." but
-// keep the "../" prefix on the reference. Forms that Clean to ".." without a
-// "../" prefix on the reference (e.g. "./..", "foo/../..") are not-found, not
-// usage. A Clean rewrite of an existing identity ("./Group/Title",
-// "Group//Title") is a usage error with a hint naming the stored form —
+// A reference with no exact match that is an absolute path, bare "." / ".."
+// (only when those identities are absent), or whose reference or Clean result
+// is still prefixed with "../" is a usage error — including forms like "../."
+// and "../foo/.." that Clean to ".." but keep the "../" prefix on the
+// reference. Forms that Clean to ".." without a "../" prefix on the reference
+// (e.g. "./..", "foo/../..") are not-found, not usage. A Clean rewrite of an
+// existing identity ("./Group/Title", "Group//Title", or "./" when a top-level
+// "." entry exists) is a usage error with a hint naming the stored form —
 // except when Clean only strips a trailing "/." or "/.." title segment: those
 // name a different identity from the parent, so an absent literal reports
 // not-found even if the Clean-collapsed parent exists. Spaces and backslashes
@@ -178,39 +179,40 @@ func dropsTrailingDotTitleSegment(reference string) bool {
 }
 
 // notFoundOrNonCanonical classifies a reference that matched no entry.
-// Absolute paths, bare "." / "..", and references whose raw form or Clean
-// result is still prefixed with "../" are usage errors (no tautological
-// "did you mean" when Clean leaves them unchanged) — including "../." and
-// "../foo/..", which Clean to ".." but keep the "../" prefix. Forms that
-// Clean to ".." without a "../" prefix on the reference (e.g. "./..",
-// "foo/../..") are not-found. A Clean rewrite is a usage error only when the
-// cleaned form matches a stored identity and the rewrite is not merely
-// stripping a trailing "/." or "/.." title segment — otherwise an absent
-// literal such as Machine/.. or X/. (when X exists) would be misclassified as
-// usage instead of not-found. path.Clean leaves literal backslashes and
-// spaces alone, so those misses stay not-found.
+// Absolute paths, bare "." / ".." (when those identities are absent), and
+// references whose raw form or Clean result is still prefixed with "../" are
+// usage errors (no tautological "did you mean" when Clean leaves them
+// unchanged) — including "../." and "../foo/..", which Clean to ".." but keep
+// the "../" prefix. Forms that Clean to ".." without a "../" prefix on the
+// reference (e.g. "./..", "foo/../..") are not-found. A Clean rewrite is a
+// usage error when the cleaned form matches a stored identity — including
+// when Clean lands on a present top-level "." or ".." (e.g. "./" → ".") —
+// except when the rewrite only strips a trailing "/." or "/.." title segment
+// onto a different identity (Machine/.., X/.), and except when the "../"
+// usage arm already claimed the reference. path.Clean leaves literal
+// backslashes and spaces alone, so those misses stay not-found.
 func notFoundOrNonCanonical(reference string, rows []virtualEntry) error {
 	cleaned := path.Clean(reference)
 	if !isStructuralPathSyntax(reference, cleaned) {
 		return fmt.Errorf("%w: no entry %q", ErrNotFound, reference)
 	}
 
-	// Respelling of a real identity: hint only when Clean actually rewrote
-	// the reference to something other than "." / "..", and not when it only
-	// dropped a trailing "." / ".." title segment onto a different identity.
-	if hasExactIdentity(rows, cleaned) && cleaned != reference && cleaned != "." && cleaned != ".." &&
-		!dropsTrailingDotTitleSegment(reference) {
-		return fmt.Errorf("%w: reference %q is not in canonical form (did you mean %q?); references match the stored identity exactly", ErrInvalidSelection, reference, cleaned)
-	}
-
-	// Absolute or still-traversing forms. Bare "." / ".." and any reference
-	// (or Clean result) still prefixed with "../" stay usage — including
-	// "../." / "../foo/.." (Clean → ".."). Misses like Machine/.., ./.., or
-	// foo/../.. (Clean → "." / ".." without a "../" prefix) and X/. (Clean → X
-	// when X exists) that are not those arms stay not-found.
+	// Absolute or still-traversing forms take precedence over hints so a
+	// "../"-prefixed spelling never becomes "did you mean ..?" even when a
+	// top-level ".." identity exists. Bare "." / ".." only reach here when
+	// those identities are absent (exact match would have succeeded).
 	if strings.HasPrefix(reference, "/") || reference == "." || reference == ".." ||
 		strings.HasPrefix(reference, "../") || strings.HasPrefix(cleaned, "../") {
 		return fmt.Errorf("%w: reference %q is absolute or traverses; identities are relative to the top-level group", ErrInvalidSelection, reference)
+	}
+
+	// Respelling of a real identity: hint when Clean rewrote the reference to
+	// a stored form (including present top-level "." / ".."), but not when it
+	// only dropped a trailing "." / ".." title segment onto a different
+	// identity.
+	if hasExactIdentity(rows, cleaned) && cleaned != reference &&
+		!dropsTrailingDotTitleSegment(reference) {
+		return fmt.Errorf("%w: reference %q is not in canonical form (did you mean %q?); references match the stored identity exactly", ErrInvalidSelection, reference, cleaned)
 	}
 
 	return fmt.Errorf("%w: no entry %q", ErrNotFound, reference)

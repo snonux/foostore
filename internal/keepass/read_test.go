@@ -116,6 +116,12 @@ func addReadFixtureEntries(db *gokeepasslib.Database) {
 	SetEntryField(&sEntry, "Title", "S")
 	SetEntryField(&sEntry, "Password", "s-plain-value")
 
+	// Top-level entry titled ".": exact "." reads; Clean respellings "./" /
+	// ".//" must hint the stored identity rather than report not-found.
+	dotTop := gokeepasslib.NewEntry()
+	SetEntryField(&dotTop, "Title", ".")
+	SetEntryField(&dotTop, "Password", "top-dot-value")
+
 	// Top-level "X" with no "X/." sibling: Clean("X/.") → "X" must be
 	// not-found, not a "did you mean X?" usage error.
 	xEntry := gokeepasslib.NewEntry()
@@ -123,7 +129,7 @@ func addReadFixtureEntries(db *gokeepasslib.Database) {
 	SetEntryField(&xEntry, "Password", "x-value")
 
 	attach := newAttachEdgeCaseGroup(db)
-	root.Entries = append(root.Entries, sEntry, xEntry)
+	root.Entries = append(root.Entries, sEntry, dotTop, xEntry)
 	root.Groups = append(root.Groups, machine, dupes, dots, attach)
 	db.Content.Root.Groups = []gokeepasslib.Group{root}
 }
@@ -181,6 +187,7 @@ func TestReadRawExactFieldBytes(t *testing.T) {
 		{name: "present entry titled '.' is reachable exactly", reference: "S/.", field: "Password", want: "dot-value"},
 		{name: "present entry titled '..' is reachable exactly", reference: "S/..", field: "Password", want: "dotdot-value"},
 		{name: "present top-level entry S coexists with S/.", reference: "S", field: "Password", want: "s-plain-value"},
+		{name: "present top-level entry titled '.' is reachable exactly", reference: ".", field: "Password", want: "top-dot-value"},
 		{name: "present top-level entry X", reference: "X", field: "Password", want: "x-value"},
 	}
 	for _, tc := range tests {
@@ -249,11 +256,11 @@ func TestReadRawFailures(t *testing.T) {
 		{"field on attachment reference is invalid", "Machine/blob/blob.bin", "Password", ErrInvalidSelection},
 		{"empty reference is invalid", "", "Password", ErrInvalidSelection},
 		{"traversal reference is invalid", "../Machine/token", "Password", ErrInvalidSelection},
-		{"bare '.' is absolute/traversal usage", ".", "Password", ErrInvalidSelection},
-		{"bare '..' is absolute/traversal usage", "..", "Password", ErrInvalidSelection},
+		{"bare '..' is absolute/traversal usage when absent", "..", "Password", ErrInvalidSelection},
 		{"dot segments are a non-canonical spelling, not an alias", "./Machine/./token", "Password", ErrInvalidSelection},
 		{"leading slash is a non-canonical spelling", "/Machine/token", "Password", ErrInvalidSelection},
 		{"doubled separator is a non-canonical spelling", "Machine//token", "Password", ErrInvalidSelection},
+		{"Clean respelling of present top-level '.' is usage with hint", "./", "Password", ErrInvalidSelection},
 		{"whitespace padding is a different literal identity", " Machine/token ", "Password", ErrNotFound},
 		{"attachment name absent from an existing entry is not found", "Machine/token/nothing.bin", "", ErrNotFound},
 		{"two attachments with one name are ambiguous", "Attach/twins/same.bin", "", ErrAmbiguous},
@@ -271,17 +278,19 @@ func TestReadRawFailures(t *testing.T) {
 
 // TestNotFoundOrNonCanonicalMessages pins ef2 message rules: absolute/traversal
 // arms name the top-level-group contract without a tautological "did you mean";
-// Clean rewrites of an existing identity still hint the stored form; Clean
-// collapses that only drop a trailing "/." or "/.." stay not-found without
-// either hint phrase.
+// Clean rewrites of an existing identity still hint the stored form — including
+// "./" / ".//" when a top-level "." entry is present; Clean collapses that only
+// drop a trailing "/." or "/.." stay not-found without either hint phrase.
 func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 	b := newReadTestBackend(t, createReadTestDB(t))
 	ctx := context.Background()
 
-	// ../Machine/token still has a "../" Clean result; ../. and ../foo/..
-	// Clean to bare ".." but keep the "../" prefix on the reference — both
-	// arms are usage, not not-found.
-	absolute := []string{"/Machine/token", ".", "..", "../Machine/token", "../.", "../foo/.."}
+	// Bare "." is present in the fixture and reads by exact match; bare ".."
+	// remains absent so the absolute/traversal arm applies. ../Machine/token
+	// still has a "../" Clean result; ../. and ../foo/.. Clean to bare ".."
+	// but keep the "../" prefix on the reference — both arms are usage, not
+	// not-found.
+	absolute := []string{"/Machine/token", "..", "../Machine/token", "../.", "../foo/.."}
 	for _, ref := range absolute {
 		_, err := b.ReadRaw(ctx, ref, "Password")
 		if !errors.Is(err, ErrInvalidSelection) {
@@ -299,7 +308,15 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		}
 	}
 
-	_, err := b.ReadRaw(ctx, "./Machine/./token", "Password")
+	got, err := b.ReadRaw(ctx, ".", "Password")
+	if err != nil {
+		t.Fatalf("exact top-level '.' must read: %v", err)
+	}
+	if string(got) != "top-dot-value" {
+		t.Fatalf("exact top-level '.' = %q, want top-dot-value", got)
+	}
+
+	_, err = b.ReadRaw(ctx, "./Machine/./token", "Password")
 	if !errors.Is(err, ErrInvalidSelection) {
 		t.Fatalf("rewrite of existing identity: error = %v, want ErrInvalidSelection", err)
 	}
@@ -315,6 +332,20 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 	msg = err.Error()
 	if !strings.Contains(msg, `did you mean "S"`) {
 		t.Fatalf("rewrite of ./S should hint stored S: %q", msg)
+	}
+
+	for _, ref := range []string{"./", ".//", ".///"} {
+		_, err := b.ReadRaw(ctx, ref, "Password")
+		if !errors.Is(err, ErrInvalidSelection) {
+			t.Fatalf("ReadRaw(%q) error = %v, want ErrInvalidSelection", ref, err)
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, `did you mean "."?`) {
+			t.Fatalf("ReadRaw(%q) error %q must hint stored top-level \".\"", ref, msg)
+		}
+		if strings.Contains(msg, "absolute or traverses") {
+			t.Fatalf("ReadRaw(%q) error %q must use the hint arm, not absolute/traversal", ref, msg)
+		}
 	}
 
 	// ./.. and foo/../.. Clean to ".." without a "../" prefix on the
@@ -389,7 +420,7 @@ func TestReadRawSelectionErrorsStayCLIIndependent(t *testing.T) {
 // diagnostics name identities and error classes, never stored secret values.
 func TestReadRawFailuresLeakNoSecretBytes(t *testing.T) {
 	b := newReadTestBackend(t, createReadTestDB(t))
-	secrets := []string{"s3cret-value", "first", "second", "odd-value", "dot-value", "dotdot-value", "s-plain-value", "x-value"}
+	secrets := []string{"s3cret-value", "first", "second", "odd-value", "dot-value", "dotdot-value", "s-plain-value", "top-dot-value", "x-value"}
 	cases := []struct{ reference, field string }{
 		{"Machine/token", "UserName"},
 		{"Machine/token", ""},
