@@ -328,9 +328,10 @@ func TestReadRawFailures(t *testing.T) {
 // Clean rewrites of an existing identity still hint the stored form — including
 // "./" / ".//" / "./." when a top-level "." entry is present; Clean collapses
 // that only drop a trailing "/." or "/.." stay not-found without either hint
-// phrase when no restored candidate is stored; trailing-slash and leading-"./"
-// forms of a present "/." / "/.." identity (S/./, ./S/., ./S/.., S//..) hint
-// that identity, not the Clean parent; absent nested "/.." (S/B/..) stays
+// phrase when no restored candidate is stored; trailing-slash, leading-"./",
+// empty-segment, and insignificant-parent forms of a present "/." / "/.."
+// identity (S/./, ./S/., ./S/.., S//.., S/./.., S/foo/../..) hint that
+// identity, not the Clean parent; absent nested "/.." (S/B/..) stays
 // not-found even when a shorter present "/.." (S/..) exists.
 // Clean respellings onto an ambiguous identity share ErrAmbiguous with the
 // canonical spelling (no usage+hint exit class).
@@ -455,6 +456,15 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		{"S//../", "S/.."},
 		{".//S/..", "S/.."},
 		{"./S//..", "S/.."},
+		// Insignificant parent segments: Clean(parent)+"/.." restores the
+		// present S/.. identity (same shape as S/./. → S/. via cleaned+"/.").
+		{"S/./..", "S/.."},
+		{"S/./../", "S/.."},
+		{"./S/./..", "S/.."},
+		{"S/.//..", "S/.."},
+		{"S/././..", "S/.."},
+		{"S/foo/../..", "S/.."},
+		{"S/bar/baz/../../..", "S/.."},
 	} {
 		_, err := b.ReadRaw(ctx, tc.ref, "Password")
 		if !errors.Is(err, ErrInvalidSelection) {
