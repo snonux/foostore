@@ -53,10 +53,13 @@ const gzipTrailerLen = 8
 // reference is compared byte for byte — no trimming, separator rewriting or
 // path cleaning — so one spelling addresses exactly one entry and a stored
 // title that itself contains spaces or backslashes stays reachable.
-// A reference with no exact match that contains structural path syntax
-// ("//", "./", a leading "/", or traversal) is a usage error. Spaces and
-// backslashes remain literal even on a miss, so an absent identity containing
-// either reports not-found.
+// A reference with no exact match that is an absolute path, bare "." / "..",
+// or that escapes above the top-level group is a usage error. A Clean rewrite
+// of an existing identity ("./Group/Title", "Group//Title") is also a usage
+// error, with a hint naming the stored form. An absent literal — including
+// titles of "." or ".." when no such entry exists — reports not-found, even
+// when Clean would collapse the reference. Spaces and backslashes remain
+// literal on a miss.
 //
 // Duplicate titles inside one group produce identical descriptions; such
 // stores are rejected with ErrAmbiguous instead of guessing.
@@ -138,15 +141,56 @@ func collectExact(rows *[]virtualEntry, g *gokeepasslib.Group, groupPath []strin
 	}
 }
 
-// notFoundOrNonCanonical classifies a reference that matched no entry. Only
-// slash-based structural path syntax is invalid; path.Clean leaves literal
-// backslashes and spaces alone, so missing identities containing them stay
-// not-found.
-func notFoundOrNonCanonical(reference string) error {
+// isStructuralPathSyntax reports whether reference uses slash-based path
+// syntax rather than a literal identity spelling. Each term is load-bearing:
+// a leading '/', Clean collapsing to '.' or '..', a Clean result that still
+// traverses upward, or any other Clean rewrite of the reference.
+func isStructuralPathSyntax(reference, cleaned string) bool {
+	return strings.HasPrefix(reference, "/") ||
+		cleaned == "." ||
+		cleaned == ".." ||
+		strings.HasPrefix(cleaned, "../") ||
+		cleaned != reference
+}
+
+// hasExactIdentity reports whether any row carries the given description.
+func hasExactIdentity(rows []virtualEntry, description string) bool {
+	for _, ve := range rows {
+		if ve.description == description {
+			return true
+		}
+	}
+	return false
+}
+
+// notFoundOrNonCanonical classifies a reference that matched no entry.
+// Absolute paths, bare "." / "..", and forms that escape above the top-level
+// group are usage errors (no tautological "did you mean" when Clean leaves
+// them unchanged). A Clean rewrite is a usage error only when the cleaned
+// form matches a stored identity — otherwise an absent literal such as
+// Machine/.. would be misclassified as usage instead of not-found. path.Clean
+// leaves literal backslashes and spaces alone, so those misses stay not-found.
+func notFoundOrNonCanonical(reference string, rows []virtualEntry) error {
 	cleaned := path.Clean(reference)
-	if strings.HasPrefix(reference, "/") || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || cleaned != reference {
+	if !isStructuralPathSyntax(reference, cleaned) {
+		return fmt.Errorf("%w: no entry %q", ErrNotFound, reference)
+	}
+
+	// Respelling of a real identity: hint only when Clean actually rewrote
+	// the reference to something other than "." / "..".
+	if hasExactIdentity(rows, cleaned) && cleaned != reference && cleaned != "." && cleaned != ".." {
 		return fmt.Errorf("%w: reference %q is not in canonical form (did you mean %q?); references match the stored identity exactly", ErrInvalidSelection, reference, cleaned)
 	}
+
+	// Absolute or upward-traversing forms that do not name a stored identity
+	// via Clean. Bare "." / ".." and references that still traverse after Clean
+	// (prefix "../") stay usage; a miss like Machine/.. or ./.. (Clean → "." /
+	// "..") that names no stored identity stays not-found.
+	if strings.HasPrefix(reference, "/") || reference == "." || reference == ".." ||
+		strings.HasPrefix(reference, "../") || strings.HasPrefix(cleaned, "../") {
+		return fmt.Errorf("%w: reference %q is absolute or traverses; identities are relative to the top-level group", ErrInvalidSelection, reference)
+	}
+
 	return fmt.Errorf("%w: no entry %q", ErrNotFound, reference)
 }
 
@@ -161,15 +205,16 @@ func (b *Backend) resolveExact(description string) (virtualEntry, error) {
 		return virtualEntry{}, fmt.Errorf("%w: database has %d top-level groups, expected exactly 1", ErrCorrupt, n)
 	}
 
+	rows := exactIdentities(b.root())
 	var matches []virtualEntry
-	for _, ve := range exactIdentities(b.root()) {
+	for _, ve := range rows {
 		if ve.description == description {
 			matches = append(matches, ve)
 		}
 	}
 	switch {
 	case len(matches) == 0:
-		return virtualEntry{}, notFoundOrNonCanonical(description)
+		return virtualEntry{}, notFoundOrNonCanonical(description, rows)
 	case len(matches) > 1:
 		return virtualEntry{}, fmt.Errorf("%w: %d entries share the identity %q; rename the duplicates so identities stay unique", ErrAmbiguous, len(matches), description)
 	}

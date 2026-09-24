@@ -98,8 +98,20 @@ func addReadFixtureEntries(db *gokeepasslib.Database) {
 	SetEntryField(&odd, "Password", "odd-value")
 	machine.Entries = append(machine.Entries, odd)
 
+	// Dot-titled entries under group "S": present identities that look
+	// structural must still resolve by exact match.
+	dots := gokeepasslib.NewGroup()
+	dots.Name = "S"
+	dot := gokeepasslib.NewEntry()
+	SetEntryField(&dot, "Title", ".")
+	SetEntryField(&dot, "Password", "dot-value")
+	dotdot := gokeepasslib.NewEntry()
+	SetEntryField(&dotdot, "Title", "..")
+	SetEntryField(&dotdot, "Password", "dotdot-value")
+	dots.Entries = append(dots.Entries, dot, dotdot)
+
 	attach := newAttachEdgeCaseGroup(db)
-	root.Groups = append(root.Groups, machine, dupes, attach)
+	root.Groups = append(root.Groups, machine, dupes, dots, attach)
 	db.Content.Root.Groups = []gokeepasslib.Group{root}
 }
 
@@ -153,6 +165,8 @@ func TestReadRawExactFieldBytes(t *testing.T) {
 		{name: "title field", reference: "Machine/token", field: "Title", want: "token"},
 		{name: "trailing newlines preserved byte for byte", reference: "Machine/token", field: "Notes", want: "line1\nline2\n"},
 		{name: "stored title with backslash and trailing space is reachable exactly", reference: "Machine/odd\\name ", field: "Password", want: "odd-value"},
+		{name: "present entry titled '.' is reachable exactly", reference: "S/.", field: "Password", want: "dot-value"},
+		{name: "present entry titled '..' is reachable exactly", reference: "S/..", field: "Password", want: "dotdot-value"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -209,12 +223,17 @@ func TestReadRawFailures(t *testing.T) {
 		{"absent title with trailing space", "Machine/gone ", "Password", ErrNotFound},
 		{"space spelling of existing path is still absent", "Machine/token ", "Password", ErrNotFound},
 		{"backslash is not a traversal separator", `..\Machine/token`, "Password", ErrNotFound},
+		{"absent dot-titled entry under Machine is not-found, not usage", "Machine/..", "Password", ErrNotFound},
+		{"absent ./.. collapses to '.' but names no identity", "./..", "Password", ErrNotFound},
+		{"absent rewrite that cleans to nothing stored is not-found", "Machine//gone", "Password", ErrNotFound},
 		{"missing field on existing entry", "Machine/token", "UserName", ErrNotFound},
 		{"duplicate titles are ambiguous", "Dupes/dupe", "Password", ErrAmbiguous},
 		{"entry reference without field is invalid", "Machine/token", "", ErrInvalidSelection},
 		{"field on attachment reference is invalid", "Machine/blob/blob.bin", "Password", ErrInvalidSelection},
 		{"empty reference is invalid", "", "Password", ErrInvalidSelection},
 		{"traversal reference is invalid", "../Machine/token", "Password", ErrInvalidSelection},
+		{"bare '.' is absolute/traversal usage", ".", "Password", ErrInvalidSelection},
+		{"bare '..' is absolute/traversal usage", "..", "Password", ErrInvalidSelection},
 		{"dot segments are a non-canonical spelling, not an alias", "./Machine/./token", "Password", ErrInvalidSelection},
 		{"leading slash is a non-canonical spelling", "/Machine/token", "Password", ErrInvalidSelection},
 		{"doubled separator is a non-canonical spelling", "Machine//token", "Password", ErrInvalidSelection},
@@ -230,6 +249,61 @@ func TestReadRawFailures(t *testing.T) {
 				t.Fatalf("ReadRaw(%q, %q) error = %v, want %v", tc.reference, tc.field, err, tc.want)
 			}
 		})
+	}
+}
+
+// TestNotFoundOrNonCanonicalMessages pins the two residual message rules from
+// ef2: absolute/traversal arms must not emit a tautological "did you mean",
+// and a Clean rewrite of an existing identity still names the stored form.
+func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
+	b := newReadTestBackend(t, createReadTestDB(t))
+	ctx := context.Background()
+
+	absolute := []string{"/Machine/token", ".", "..", "../Machine/token"}
+	for _, ref := range absolute {
+		_, err := b.ReadRaw(ctx, ref, "Password")
+		if !errors.Is(err, ErrInvalidSelection) {
+			t.Fatalf("ReadRaw(%q) error = %v, want ErrInvalidSelection", ref, err)
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "did you mean") {
+			t.Fatalf("ReadRaw(%q) error %q must not emit a tautological hint", ref, msg)
+		}
+		if !strings.Contains(msg, "absolute or traverses") {
+			t.Fatalf("ReadRaw(%q) error %q must explain absolute/traversal", ref, msg)
+		}
+	}
+
+	_, err := b.ReadRaw(ctx, "./Machine/./token", "Password")
+	if !errors.Is(err, ErrInvalidSelection) {
+		t.Fatalf("rewrite of existing identity: error = %v, want ErrInvalidSelection", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, `did you mean "Machine/token"`) {
+		t.Fatalf("rewrite hint missing stored identity: %q", msg)
+	}
+}
+
+// TestIsStructuralPathSyntax pins the named predicate that gates usage vs
+// not-found classification — every term is load-bearing.
+func TestIsStructuralPathSyntax(t *testing.T) {
+	cases := []struct {
+		ref, cleaned string
+		want         bool
+	}{
+		{"Machine/token", "Machine/token", false},
+		{"/Machine/token", "/Machine/token", true},
+		{".", ".", true},
+		{"..", "..", true},
+		{"../x", "../x", true},
+		{"Machine/..", ".", true},
+		{"Machine//token", "Machine/token", true},
+		{"./Machine/token", "Machine/token", true},
+	}
+	for _, tc := range cases {
+		if got := isStructuralPathSyntax(tc.ref, tc.cleaned); got != tc.want {
+			t.Errorf("isStructuralPathSyntax(%q, %q) = %v, want %v", tc.ref, tc.cleaned, got, tc.want)
+		}
 	}
 }
 
@@ -260,13 +334,15 @@ func TestReadRawSelectionErrorsStayCLIIndependent(t *testing.T) {
 // diagnostics name identities and error classes, never stored secret values.
 func TestReadRawFailuresLeakNoSecretBytes(t *testing.T) {
 	b := newReadTestBackend(t, createReadTestDB(t))
-	secrets := []string{"s3cret-value", "first", "second", "odd-value"}
+	secrets := []string{"s3cret-value", "first", "second", "odd-value", "dot-value", "dotdot-value"}
 	cases := []struct{ reference, field string }{
 		{"Machine/token", "UserName"},
 		{"Machine/token", ""},
 		{"Dupes/dupe", "Password"},
 		{"Machine/blob/blob.bin", "Password"},
 		{"Machine/missing", "Password"},
+		{"Machine/..", "Password"},
+		{"S/.", "UserName"},
 	}
 	for _, tc := range cases {
 		_, err := b.ReadRaw(context.Background(), tc.reference, tc.field)
