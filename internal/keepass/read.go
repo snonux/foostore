@@ -57,12 +57,15 @@ const gzipTrailerLen = 8
 // (only when those identities are absent), or whose reference or Clean result
 // is still prefixed with "../" is a usage error — including forms like "../."
 // and "../foo/.." that Clean to ".." but keep the "../" prefix on the
-// reference. Forms that Clean to ".." without a "../" prefix on the reference
-// (e.g. "./..", "foo/../..") are not-found, not usage. A Clean rewrite of an
-// existing identity ("./Group/Title", "Group//Title", or "./" when a top-level
-// "." entry exists) is a usage error with a hint naming the stored form —
-// except when Clean only strips a trailing "/." or "/.." title segment: those
-// name a different identity from the parent, so an absent literal reports
+// reference. Forms that Clean to ".." without a "../" prefix (e.g. "./..",
+// "foo/../..") only drop a trailing "/.." title segment and are not-found,
+// so Clean never hints onto a stored top-level "..". A Clean rewrite of an
+// existing identity ("./Group/Title", "Group//Title", or "./" / ".//" when a
+// top-level "." entry exists) is a usage error with a hint naming the stored
+// form when exactly one row matches; when several rows share that cleaned
+// identity the miss is ErrAmbiguous — the same exit class as the canonical
+// spelling. Clean that only strips a trailing "/." or "/.." title segment
+// names a different identity from the parent, so an absent literal reports
 // not-found even if the Clean-collapsed parent exists. Spaces and backslashes
 // remain literal on a miss.
 //
@@ -158,14 +161,15 @@ func isStructuralPathSyntax(reference, cleaned string) bool {
 		cleaned != reference
 }
 
-// hasExactIdentity reports whether any row carries the given description.
-func hasExactIdentity(rows []virtualEntry, description string) bool {
+// countExactIdentity returns how many rows carry the given description.
+func countExactIdentity(rows []virtualEntry, description string) int {
+	n := 0
 	for _, ve := range rows {
 		if ve.description == description {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 // dropsTrailingDotTitleSegment reports whether reference's final path segment
@@ -184,13 +188,16 @@ func dropsTrailingDotTitleSegment(reference string) bool {
 // usage errors (no tautological "did you mean" when Clean leaves them
 // unchanged) — including "../." and "../foo/..", which Clean to ".." but keep
 // the "../" prefix. Forms that Clean to ".." without a "../" prefix on the
-// reference (e.g. "./..", "foo/../..") are not-found. A Clean rewrite is a
-// usage error when the cleaned form matches a stored identity — including
-// when Clean lands on a present top-level "." or ".." (e.g. "./" → ".") —
-// except when the rewrite only strips a trailing "/." or "/.." title segment
-// onto a different identity (Machine/.., X/.), and except when the "../"
-// usage arm already claimed the reference. path.Clean leaves literal
-// backslashes and spaces alone, so those misses stay not-found.
+// reference (e.g. "./..", "foo/../..") hit dropsTrailingDotTitleSegment and
+// stay not-found; Clean therefore never hints onto a stored top-level "..".
+// A Clean rewrite onto a stored identity is a usage error with a hint when
+// exactly one row matches — including when Clean lands on a present
+// top-level "." (e.g. "./", ".//" → ".") — and ErrAmbiguous when several
+// rows share that cleaned identity (same class as the canonical spelling).
+// Clean that only strips a trailing "/." or "/.." title segment onto a
+// different identity (Machine/.., X/.) stays not-found. The "../" usage arm
+// already claims "../"-prefixed forms before the hint arm. path.Clean leaves
+// literal backslashes and spaces alone, so those misses stay not-found.
 func notFoundOrNonCanonical(reference string, rows []virtualEntry) error {
 	cleaned := path.Clean(reference)
 	if !isStructuralPathSyntax(reference, cleaned) {
@@ -206,13 +213,18 @@ func notFoundOrNonCanonical(reference string, rows []virtualEntry) error {
 		return fmt.Errorf("%w: reference %q is absolute or traverses; identities are relative to the top-level group", ErrInvalidSelection, reference)
 	}
 
-	// Respelling of a real identity: hint when Clean rewrote the reference to
-	// a stored form (including present top-level "." / ".."), but not when it
-	// only dropped a trailing "." / ".." title segment onto a different
-	// identity.
-	if hasExactIdentity(rows, cleaned) && cleaned != reference &&
-		!dropsTrailingDotTitleSegment(reference) {
-		return fmt.Errorf("%w: reference %q is not in canonical form (did you mean %q?); references match the stored identity exactly", ErrInvalidSelection, reference, cleaned)
+	// Respelling of a real identity: when Clean rewrote the reference onto a
+	// stored form (including present top-level "."), ambiguous cleaned
+	// identities share the canonical ErrAmbiguous exit class; a single match
+	// hints the stored spelling. Do not hint when Clean only dropped a
+	// trailing "." / ".." title segment onto a different identity.
+	if cleaned != reference && !dropsTrailingDotTitleSegment(reference) {
+		switch n := countExactIdentity(rows, cleaned); {
+		case n > 1:
+			return fmt.Errorf("%w: %d entries share the identity %q; rename the duplicates so identities stay unique", ErrAmbiguous, n, cleaned)
+		case n == 1:
+			return fmt.Errorf("%w: reference %q is not in canonical form (did you mean %q?); references match the stored identity exactly", ErrInvalidSelection, reference, cleaned)
+		}
 	}
 
 	return fmt.Errorf("%w: no entry %q", ErrNotFound, reference)

@@ -55,6 +55,37 @@ func createReadTestDBVersion(t *testing.T, kdbx4 bool) string {
 	return tmp.Name()
 }
 
+// createReadTestDBWithoutTopLevelDot is createReadTestDB minus the top-level
+// "." entry, so absent bare "." (and still-absent "..") exercise the absolute/
+// traversal usage arm instead of exact match.
+func createReadTestDBWithoutTopLevelDot(t *testing.T) string {
+	t.Helper()
+
+	db := gokeepasslib.NewDatabase()
+	db.Credentials = gokeepasslib.NewPasswordCredentials("testpass")
+	addReadFixtureEntries(db)
+
+	root := &db.Content.Root.Groups[0]
+	filtered := root.Entries[:0]
+	for _, e := range root.Entries {
+		if e.GetTitle() == "." {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	root.Entries = filtered
+
+	tmp, err := os.CreateTemp(t.TempDir(), "read-nodot-*.kdbx")
+	if err != nil {
+		t.Fatalf("creating temp kdbx: %v", err)
+	}
+	defer func() { _ = tmp.Close() }()
+	if err := gokeepasslib.NewEncoder(tmp).Encode(db); err != nil {
+		t.Fatalf("encoding test db: %v", err)
+	}
+	return tmp.Name()
+}
+
 // addReadFixtureEntries populates the entries and attachment cases shared by
 // both KDBX versions.
 func addReadFixtureEntries(db *gokeepasslib.Database) {
@@ -252,6 +283,9 @@ func TestReadRawFailures(t *testing.T) {
 		{"absent rewrite that cleans to nothing stored is not-found", "Machine//gone", "Password", ErrNotFound},
 		{"missing field on existing entry", "Machine/token", "UserName", ErrNotFound},
 		{"duplicate titles are ambiguous", "Dupes/dupe", "Password", ErrAmbiguous},
+		{"Clean respelling of ambiguous identity is still ambiguous", "./Dupes/dupe", "Password", ErrAmbiguous},
+		{"doubled-slash respelling of ambiguous identity is still ambiguous", "Dupes//dupe", "Password", ErrAmbiguous},
+		{"dot-segment respelling of ambiguous identity is still ambiguous", "./Dupes/./dupe", "Password", ErrAmbiguous},
 		{"entry reference without field is invalid", "Machine/token", "", ErrInvalidSelection},
 		{"field on attachment reference is invalid", "Machine/blob/blob.bin", "Password", ErrInvalidSelection},
 		{"empty reference is invalid", "", "Password", ErrInvalidSelection},
@@ -281,6 +315,8 @@ func TestReadRawFailures(t *testing.T) {
 // Clean rewrites of an existing identity still hint the stored form — including
 // "./" / ".//" when a top-level "." entry is present; Clean collapses that only
 // drop a trailing "/." or "/.." stay not-found without either hint phrase.
+// Clean respellings onto an ambiguous identity share ErrAmbiguous with the
+// canonical spelling (no usage+hint exit class).
 func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 	b := newReadTestBackend(t, createReadTestDB(t))
 	ctx := context.Background()
@@ -348,6 +384,22 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		}
 	}
 
+	// Clean onto an ambiguous stored identity must stay ErrAmbiguous — the
+	// same class as the canonical spelling — not usage+hint (CLI exit 2).
+	for _, ref := range []string{"./Dupes/dupe", "Dupes//dupe", "./Dupes/./dupe"} {
+		_, err := b.ReadRaw(ctx, ref, "Password")
+		if !errors.Is(err, ErrAmbiguous) {
+			t.Fatalf("ReadRaw(%q) error = %v, want ErrAmbiguous", ref, err)
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "did you mean") {
+			t.Fatalf("ReadRaw(%q) error %q must not hint an ambiguous identity", ref, msg)
+		}
+		if !strings.Contains(msg, `identity "Dupes/dupe"`) {
+			t.Fatalf("ReadRaw(%q) error %q must name the shared cleaned identity", ref, msg)
+		}
+	}
+
 	// ./.. and foo/../.. Clean to ".." without a "../" prefix on the
 	// reference, so they stay not-found (unlike ../. / ../foo/.. above).
 	notFoundNoHint := []string{"Machine/..", "./..", "foo/../..", "X/.", "S/./"}
@@ -362,6 +414,33 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		}
 		if strings.Contains(msg, "absolute or traverses") {
 			t.Fatalf("ReadRaw(%q) error %q must not use the absolute/traversal arm", ref, msg)
+		}
+	}
+}
+
+// TestAbsentBareDotAndDotDotAreUsage pins that bare "." and ".." are absolute/
+// traversal usage when those top-level identities are absent. The main read
+// fixture includes a top-level "." entry, so this uses a dedicated DB without
+// that entry — removing reference == "." from the absolute check must fail.
+func TestAbsentBareDotAndDotDotAreUsage(t *testing.T) {
+	path := createReadTestDBWithoutTopLevelDot(t)
+	b := newReadTestBackend(t, path)
+	ctx := context.Background()
+
+	for _, ref := range []string{".", ".."} {
+		_, err := b.ReadRaw(ctx, ref, "Password")
+		if !errors.Is(err, ErrInvalidSelection) {
+			t.Fatalf("ReadRaw(%q) error = %v, want ErrInvalidSelection", ref, err)
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "did you mean") {
+			t.Fatalf("ReadRaw(%q) error %q must not emit a tautological hint", ref, msg)
+		}
+		if !strings.Contains(msg, "absolute or traverses") {
+			t.Fatalf("ReadRaw(%q) error %q must explain absolute/traversal", ref, msg)
+		}
+		if !strings.Contains(msg, "identities are relative to the top-level group") {
+			t.Fatalf("ReadRaw(%q) error %q must pin the top-level-group contract", ref, msg)
 		}
 	}
 }
