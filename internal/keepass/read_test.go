@@ -325,8 +325,9 @@ func TestReadRawFailures(t *testing.T) {
 // "./" / ".//" / "./." when a top-level "." entry is present; Clean collapses
 // that only drop a trailing "/." or "/.." stay not-found without either hint
 // phrase when no restored candidate is stored; trailing-slash and leading-"./"
-// forms of a present "/." / "/.." identity (S/./, ./S/.) hint that identity,
-// not the Clean parent.
+// forms of a present "/." / "/.." identity (S/./, ./S/., ./S/..) hint that
+// identity, not the Clean parent; absent nested "/.." (S/B/..) stays not-found
+// even when a shorter present "/.." (S/..) exists.
 // Clean respellings onto an ambiguous identity share ErrAmbiguous with the
 // canonical spelling (no usage+hint exit class).
 func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
@@ -433,8 +434,8 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 
 	// Trailing-slash forms of a present "/." / "/.." identity hint that
 	// identity (not the Clean-collapsed parent "S"). Leading "./" respellings
-	// of present "S/." restore the same way; absent "./X/." is covered in
-	// notFoundNoHint above.
+	// of present "S/." and "S/.." restore the same way; absent "./X/." is
+	// covered in notFoundNoHint above.
 	for _, tc := range []struct {
 		ref, wantHint string
 	}{
@@ -443,6 +444,9 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		{"S/../", "S/.."},
 		{"./S/.", "S/."},
 		{"./S/./", "S/."},
+		{"./S/..", "S/.."},
+		{"./S/../", "S/.."},
+		{"././S/..", "S/.."},
 	} {
 		_, err := b.ReadRaw(ctx, tc.ref, "Password")
 		if !errors.Is(err, ErrInvalidSelection) {
@@ -454,6 +458,23 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		}
 		if strings.Contains(msg, `did you mean "S"?`) {
 			t.Fatalf("ReadRaw(%q) error %q must not hint Clean-collapsed parent S", tc.ref, msg)
+		}
+	}
+
+	// Absent nested "/.." under a group that has a present shorter "/.."
+	// identity must stay not-found — never "did you mean \"S/..\"?" from a
+	// cleaned+"/.." reconstruction (parent-collapse hole).
+	for _, ref := range []string{"S/B/..", "S/B/../", "./S/B/..", "./S/B/../"} {
+		_, err := b.ReadRaw(ctx, ref, "Password")
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("ReadRaw(%q) error = %v, want ErrNotFound", ref, err)
+		}
+		msg := err.Error()
+		if strings.Contains(msg, `did you mean "S/.."`) {
+			t.Fatalf("ReadRaw(%q) error %q must not hint shorter present S/..", ref, msg)
+		}
+		if strings.Contains(msg, "did you mean") {
+			t.Fatalf("ReadRaw(%q) error %q must not emit a Clean-collapse hint", ref, msg)
 		}
 	}
 }
