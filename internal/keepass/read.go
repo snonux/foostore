@@ -66,8 +66,10 @@ const gzipTrailerLen = 8
 // identity the miss is ErrAmbiguous — the same exit class as the canonical
 // spelling. Clean that only strips a trailing "/." or "/.." title segment
 // names a different identity from the parent, so an absent literal reports
-// not-found even if the Clean-collapsed parent exists. Spaces and backslashes
-// remain literal on a miss.
+// not-found even if the Clean-collapsed parent exists — unless the
+// slash-trimmed reference itself is stored (e.g. "S/./" → "S/."), in which
+// case the miss is usage+hint or ErrAmbiguous for that identity. Spaces and
+// backslashes remain literal on a miss.
 //
 // Duplicate titles inside one group produce identical descriptions; such
 // stores are rejected with ErrAmbiguous instead of guessing.
@@ -176,7 +178,8 @@ func countExactIdentity(rows []virtualEntry, description string) int {
 // is a literal "." or ".." (after trimming trailing slashes). path.Clean
 // collapses those onto the parent path, but a title of "." or ".." is a
 // distinct identity from that parent, so a miss must stay not-found rather
-// than hinting the Clean-collapsed form.
+// than hinting the Clean-collapsed form — unless the slash-trimmed reference
+// itself matches a stored identity (e.g. "S/./" → "S/.").
 func dropsTrailingDotTitleSegment(reference string) bool {
 	trimmed := strings.TrimRight(reference, "/")
 	return strings.HasSuffix(trimmed, "/.") || strings.HasSuffix(trimmed, "/..")
@@ -195,9 +198,12 @@ func dropsTrailingDotTitleSegment(reference string) bool {
 // top-level "." (e.g. "./", ".//" → ".") — and ErrAmbiguous when several
 // rows share that cleaned identity (same class as the canonical spelling).
 // Clean that only strips a trailing "/." or "/.." title segment onto a
-// different identity (Machine/.., X/.) stays not-found. The "../" usage arm
-// already claims "../"-prefixed forms before the hint arm. path.Clean leaves
-// literal backslashes and spaces alone, so those misses stay not-found.
+// different identity (Machine/.., X/.) stays not-found when the slash-trimmed
+// form is also absent; when the slash-trimmed form is stored (S/./ → S/.),
+// the miss is usage+hint or ErrAmbiguous for that identity instead of the
+// Clean-collapsed parent. The "../" usage arm already claims "../"-prefixed
+// forms before the hint arm. path.Clean leaves literal backslashes and spaces
+// alone, so those misses stay not-found.
 func notFoundOrNonCanonical(reference string, rows []virtualEntry) error {
 	cleaned := path.Clean(reference)
 	if !isStructuralPathSyntax(reference, cleaned) {
@@ -216,9 +222,21 @@ func notFoundOrNonCanonical(reference string, rows []virtualEntry) error {
 	// Respelling of a real identity: when Clean rewrote the reference onto a
 	// stored form (including present top-level "."), ambiguous cleaned
 	// identities share the canonical ErrAmbiguous exit class; a single match
-	// hints the stored spelling. Do not hint when Clean only dropped a
-	// trailing "." / ".." title segment onto a different identity.
-	if cleaned != reference && !dropsTrailingDotTitleSegment(reference) {
+	// hints the stored spelling. When Clean only dropped a trailing "." / ".."
+	// title segment, prefer the slash-trimmed reference if that identity is
+	// stored; otherwise stay not-found rather than hinting the parent.
+	if cleaned != reference {
+		if dropsTrailingDotTitleSegment(reference) {
+			trimmed := strings.TrimRight(reference, "/")
+			switch n := countExactIdentity(rows, trimmed); {
+			case n > 1:
+				return fmt.Errorf("%w: %d entries share the identity %q; rename the duplicates so identities stay unique", ErrAmbiguous, n, trimmed)
+			case n == 1:
+				return fmt.Errorf("%w: reference %q is not in canonical form (did you mean %q?); references match the stored identity exactly", ErrInvalidSelection, reference, trimmed)
+			default:
+				return fmt.Errorf("%w: no entry %q", ErrNotFound, reference)
+			}
+		}
 		switch n := countExactIdentity(rows, cleaned); {
 		case n > 1:
 			return fmt.Errorf("%w: %d entries share the identity %q; rename the duplicates so identities stay unique", ErrAmbiguous, n, cleaned)

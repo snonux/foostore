@@ -142,7 +142,8 @@ func addReadFixtureEntries(db *gokeepasslib.Database) {
 	dots.Entries = append(dots.Entries, dot, dotdot)
 
 	// Top-level entry titled "S": coexists with group identities S/. and S/..
-	// so Clean("S/./") → "S" must not hint the parent when the literal misses.
+	// so Clean("S/./") → "S" must not hint the parent; slash-trimmed "S/./"
+	// hints stored "S/." instead.
 	sEntry := gokeepasslib.NewEntry()
 	SetEntryField(&sEntry, "Title", "S")
 	SetEntryField(&sEntry, "Password", "s-plain-value")
@@ -279,7 +280,10 @@ func TestReadRawFailures(t *testing.T) {
 		{"absent dot-titled entry under Machine is not-found, not usage", "Machine/..", "Password", ErrNotFound},
 		{"absent ./.. cleans to '..' but names no identity", "./..", "Password", ErrNotFound},
 		{"absent X/. is not-found even when X exists", "X/.", "Password", ErrNotFound},
-		{"absent S/./ drops trailing /. onto existing S, still not-found", "S/./", "Password", ErrNotFound},
+		{"trailing-slash form of present S/. hints that identity", "S/./", "Password", ErrInvalidSelection},
+		{"extra trailing slashes on present S/. still hint", "S/.//", "Password", ErrInvalidSelection},
+		{"trailing-slash form of present S/.. hints that identity", "S/../", "Password", ErrInvalidSelection},
+		{"absent Machine/token/./ is not-found when only Machine/token exists", "Machine/token/./", "Password", ErrNotFound},
 		{"absent rewrite that cleans to nothing stored is not-found", "Machine//gone", "Password", ErrNotFound},
 		{"missing field on existing entry", "Machine/token", "UserName", ErrNotFound},
 		{"duplicate titles are ambiguous", "Dupes/dupe", "Password", ErrAmbiguous},
@@ -314,7 +318,9 @@ func TestReadRawFailures(t *testing.T) {
 // arms name the top-level-group contract without a tautological "did you mean";
 // Clean rewrites of an existing identity still hint the stored form — including
 // "./" / ".//" when a top-level "." entry is present; Clean collapses that only
-// drop a trailing "/." or "/.." stay not-found without either hint phrase.
+// drop a trailing "/." or "/.." stay not-found without either hint phrase when
+// the slash-trimmed form is also absent; trailing-slash forms of a present
+// "/." / "/.." identity (S/./) hint that identity, not the Clean parent.
 // Clean respellings onto an ambiguous identity share ErrAmbiguous with the
 // canonical spelling (no usage+hint exit class).
 func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
@@ -402,7 +408,9 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 
 	// ./.. and foo/../.. Clean to ".." without a "../" prefix on the
 	// reference, so they stay not-found (unlike ../. / ../foo/.. above).
-	notFoundNoHint := []string{"Machine/..", "./..", "foo/../..", "X/.", "S/./"}
+	// X/. and Machine/token/./ drop a trailing "/." onto an existing parent
+	// while the slash-trimmed identity is absent — still not-found, no hint.
+	notFoundNoHint := []string{"Machine/..", "./..", "foo/../..", "X/.", "Machine/token/./"}
 	for _, ref := range notFoundNoHint {
 		_, err := b.ReadRaw(ctx, ref, "Password")
 		if !errors.Is(err, ErrNotFound) {
@@ -414,6 +422,28 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		}
 		if strings.Contains(msg, "absolute or traverses") {
 			t.Fatalf("ReadRaw(%q) error %q must not use the absolute/traversal arm", ref, msg)
+		}
+	}
+
+	// Trailing-slash forms of a present "/." / "/.." identity hint that
+	// identity (not the Clean-collapsed parent "S").
+	for _, tc := range []struct {
+		ref, wantHint string
+	}{
+		{"S/./", "S/."},
+		{"S/.//", "S/."},
+		{"S/../", "S/.."},
+	} {
+		_, err := b.ReadRaw(ctx, tc.ref, "Password")
+		if !errors.Is(err, ErrInvalidSelection) {
+			t.Fatalf("ReadRaw(%q) error = %v, want ErrInvalidSelection", tc.ref, err)
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, fmt.Sprintf(`did you mean %q?`, tc.wantHint)) {
+			t.Fatalf("ReadRaw(%q) error %q must hint stored %q", tc.ref, msg, tc.wantHint)
+		}
+		if strings.Contains(msg, `did you mean "S"?`) {
+			t.Fatalf("ReadRaw(%q) error %q must not hint Clean-collapsed parent S", tc.ref, msg)
 		}
 	}
 }
