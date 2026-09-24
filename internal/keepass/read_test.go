@@ -110,7 +110,20 @@ func addReadFixtureEntries(db *gokeepasslib.Database) {
 	SetEntryField(&dotdot, "Password", "dotdot-value")
 	dots.Entries = append(dots.Entries, dot, dotdot)
 
+	// Top-level entry titled "S": coexists with group identities S/. and S/..
+	// so Clean("S/./") → "S" must not hint the parent when the literal misses.
+	sEntry := gokeepasslib.NewEntry()
+	SetEntryField(&sEntry, "Title", "S")
+	SetEntryField(&sEntry, "Password", "s-plain-value")
+
+	// Top-level "X" with no "X/." sibling: Clean("X/.") → "X" must be
+	// not-found, not a "did you mean X?" usage error.
+	xEntry := gokeepasslib.NewEntry()
+	SetEntryField(&xEntry, "Title", "X")
+	SetEntryField(&xEntry, "Password", "x-value")
+
 	attach := newAttachEdgeCaseGroup(db)
+	root.Entries = append(root.Entries, sEntry, xEntry)
 	root.Groups = append(root.Groups, machine, dupes, dots, attach)
 	db.Content.Root.Groups = []gokeepasslib.Group{root}
 }
@@ -167,6 +180,8 @@ func TestReadRawExactFieldBytes(t *testing.T) {
 		{name: "stored title with backslash and trailing space is reachable exactly", reference: "Machine/odd\\name ", field: "Password", want: "odd-value"},
 		{name: "present entry titled '.' is reachable exactly", reference: "S/.", field: "Password", want: "dot-value"},
 		{name: "present entry titled '..' is reachable exactly", reference: "S/..", field: "Password", want: "dotdot-value"},
+		{name: "present top-level entry S coexists with S/.", reference: "S", field: "Password", want: "s-plain-value"},
+		{name: "present top-level entry X", reference: "X", field: "Password", want: "x-value"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -224,7 +239,9 @@ func TestReadRawFailures(t *testing.T) {
 		{"space spelling of existing path is still absent", "Machine/token ", "Password", ErrNotFound},
 		{"backslash is not a traversal separator", `..\Machine/token`, "Password", ErrNotFound},
 		{"absent dot-titled entry under Machine is not-found, not usage", "Machine/..", "Password", ErrNotFound},
-		{"absent ./.. collapses to '.' but names no identity", "./..", "Password", ErrNotFound},
+		{"absent ./.. cleans to '..' but names no identity", "./..", "Password", ErrNotFound},
+		{"absent X/. is not-found even when X exists", "X/.", "Password", ErrNotFound},
+		{"absent S/./ drops trailing /. onto existing S, still not-found", "S/./", "Password", ErrNotFound},
 		{"absent rewrite that cleans to nothing stored is not-found", "Machine//gone", "Password", ErrNotFound},
 		{"missing field on existing entry", "Machine/token", "UserName", ErrNotFound},
 		{"duplicate titles are ambiguous", "Dupes/dupe", "Password", ErrAmbiguous},
@@ -252,9 +269,11 @@ func TestReadRawFailures(t *testing.T) {
 	}
 }
 
-// TestNotFoundOrNonCanonicalMessages pins the two residual message rules from
-// ef2: absolute/traversal arms must not emit a tautological "did you mean",
-// and a Clean rewrite of an existing identity still names the stored form.
+// TestNotFoundOrNonCanonicalMessages pins ef2 message rules: absolute/traversal
+// arms name the top-level-group contract without a tautological "did you mean";
+// Clean rewrites of an existing identity still hint the stored form; Clean
+// collapses that only drop a trailing "/." or "/.." stay not-found without
+// either hint phrase.
 func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 	b := newReadTestBackend(t, createReadTestDB(t))
 	ctx := context.Background()
@@ -272,6 +291,9 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		if !strings.Contains(msg, "absolute or traverses") {
 			t.Fatalf("ReadRaw(%q) error %q must explain absolute/traversal", ref, msg)
 		}
+		if !strings.Contains(msg, "identities are relative to the top-level group") {
+			t.Fatalf("ReadRaw(%q) error %q must pin the top-level-group contract", ref, msg)
+		}
 	}
 
 	_, err := b.ReadRaw(ctx, "./Machine/./token", "Password")
@@ -282,10 +304,37 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 	if !strings.Contains(msg, `did you mean "Machine/token"`) {
 		t.Fatalf("rewrite hint missing stored identity: %q", msg)
 	}
+
+	_, err = b.ReadRaw(ctx, "./S", "Password")
+	if !errors.Is(err, ErrInvalidSelection) {
+		t.Fatalf("rewrite of existing top-level S: error = %v, want ErrInvalidSelection", err)
+	}
+	msg = err.Error()
+	if !strings.Contains(msg, `did you mean "S"`) {
+		t.Fatalf("rewrite of ./S should hint stored S: %q", msg)
+	}
+
+	notFoundNoHint := []string{"Machine/..", "./..", "X/.", "S/./"}
+	for _, ref := range notFoundNoHint {
+		_, err := b.ReadRaw(ctx, ref, "Password")
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("ReadRaw(%q) error = %v, want ErrNotFound", ref, err)
+		}
+		msg := err.Error()
+		if strings.Contains(msg, "did you mean") {
+			t.Fatalf("ReadRaw(%q) error %q must not hint a Clean-collapsed parent", ref, msg)
+		}
+		if strings.Contains(msg, "absolute or traverses") {
+			t.Fatalf("ReadRaw(%q) error %q must not use the absolute/traversal arm", ref, msg)
+		}
+	}
 }
 
-// TestIsStructuralPathSyntax pins the named predicate that gates usage vs
-// not-found classification — every term is load-bearing.
+// TestIsStructuralPathSyntax pins the named predicate that detects slash-based
+// path syntax (leading '/', Clean to '.'/'..'/'../…', or any Clean rewrite).
+// Classification into usage vs not-found also depends on stored identities and
+// trailing "/." / "/.." handling in notFoundOrNonCanonical — this predicate
+// alone does not decide the exit class.
 func TestIsStructuralPathSyntax(t *testing.T) {
 	cases := []struct {
 		ref, cleaned string
@@ -299,6 +348,7 @@ func TestIsStructuralPathSyntax(t *testing.T) {
 		{"Machine/..", ".", true},
 		{"Machine//token", "Machine/token", true},
 		{"./Machine/token", "Machine/token", true},
+		{"X/.", "X", true},
 	}
 	for _, tc := range cases {
 		if got := isStructuralPathSyntax(tc.ref, tc.cleaned); got != tc.want {
@@ -334,7 +384,7 @@ func TestReadRawSelectionErrorsStayCLIIndependent(t *testing.T) {
 // diagnostics name identities and error classes, never stored secret values.
 func TestReadRawFailuresLeakNoSecretBytes(t *testing.T) {
 	b := newReadTestBackend(t, createReadTestDB(t))
-	secrets := []string{"s3cret-value", "first", "second", "odd-value", "dot-value", "dotdot-value"}
+	secrets := []string{"s3cret-value", "first", "second", "odd-value", "dot-value", "dotdot-value", "s-plain-value", "x-value"}
 	cases := []struct{ reference, field string }{
 		{"Machine/token", "UserName"},
 		{"Machine/token", ""},
@@ -343,6 +393,7 @@ func TestReadRawFailuresLeakNoSecretBytes(t *testing.T) {
 		{"Machine/missing", "Password"},
 		{"Machine/..", "Password"},
 		{"S/.", "UserName"},
+		{"X/.", "Password"},
 	}
 	for _, tc := range cases {
 		_, err := b.ReadRaw(context.Background(), tc.reference, tc.field)
