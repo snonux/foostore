@@ -8,7 +8,8 @@ REFERENCE is the exact entry identity ("Group/Title"); an attachment is
 selected by its reference form ("Group/Title/name"). Entry references require
 --field NAME (e.g. --field Password); attachment references reject --field.
 The reference must match the stored identity exactly (no normalisation);
-use -- before a reference that starts with "-".
+use -- before a reference that starts with "-" (a reference literally
+spelled "--help" needs --; sole -h is a usage error, not help).
 
 Exit codes: 0 ok; 1 unexpected failure or timeout; 2 usage;
 4 not found (the only suppressible code); 5 ambiguous identity;

@@ -23,7 +23,7 @@ type readFlagSpec struct {
 }
 
 // readFlagSpecs declares the read flags used by command detection and parsing.
-// The sole help arguments, --help and -h, are handled separately.
+// Sole --help is handled separately; sole -h is a usage error (see wantsReadHelp).
 var readFlagSpecs = map[string]readFlagSpec{
 	"--backend":         {target: readBackendValue},
 	"--kdbx-path":       {target: readPathValue},
@@ -41,11 +41,14 @@ func isReadOnlyEqualsForm(arg string) bool {
 	return equals && known && spec.readOnly && spec.target != readNoValue
 }
 
-// wantsReadHelp accepts help only as the sole read argument. A mixed invocation
-// must go through normal parsing so it cannot exit successfully with usage text
-// where a machine caller expects secret bytes.
+// wantsReadHelp accepts only a sole --help argument. That form prints usage on
+// stdout with exit 0 (gonf's contract probe). A sole -h is deliberately not
+// help: it is far likelier to be an accidental reference (e.g. REF=-h) than a
+// help request, so it falls through to normal parsing as a usage error. Mixed
+// invocations also go through normal parsing so they cannot exit successfully
+// with usage text where a machine caller expects secret bytes.
 func wantsReadHelp(argv []string) bool {
-	return len(argv) == 1 && (argv[0] == "--help" || argv[0] == "-h")
+	return len(argv) == 1 && argv[0] == "--help"
 }
 
 // parseReadFlags scans argv for the read command's flags. Value flags use the

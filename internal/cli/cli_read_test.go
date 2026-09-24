@@ -392,16 +392,24 @@ func TestBuildBackendRejectsUnknownName(t *testing.T) {
 }
 
 func TestReadHelp(t *testing.T) {
-	for _, help := range []string{"--help", "-h"} {
-		t.Run(help, func(t *testing.T) {
-			var stdout bytes.Buffer
-			if code := readCommand(context.Background(), []string{help}, &stdout); code != 0 {
-				t.Fatalf("%s exit = %d, want 0", help, code)
-			}
-			if !strings.Contains(stdout.String(), "usage: foostore read") {
-				t.Fatalf("%s output = %q, want the read usage", help, stdout.String())
-			}
-		})
+	var stdout bytes.Buffer
+	if code := readCommand(context.Background(), []string{"--help"}, &stdout); code != 0 {
+		t.Fatalf("--help exit = %d, want 0", code)
+	}
+	if !strings.Contains(stdout.String(), "usage: foostore read") {
+		t.Fatalf("--help output = %q, want the read usage", stdout.String())
+	}
+}
+
+func TestReadSoleShortHelpIsUsageError(t *testing.T) {
+	// A bare -h is far likelier to be an accidental reference (REF=-h) than a
+	// help request; it must not exit 0 with usage on stdout.
+	code, stdout, stderr := runReadMachine(t, "", []string{"-h"})
+	if code != readExitUsage || stdout != "" || !strings.Contains(stderr, "usage:") {
+		t.Fatalf("read -h = exit %d, stdout %q, stderr %q; want usage error with empty stdout", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, `unknown flag "-h"`) {
+		t.Fatalf("stderr %q should name the rejected -h flag", stderr)
 	}
 }
 
@@ -1144,6 +1152,12 @@ func TestReadExitForUnclassifiedIsGenericFailure(t *testing.T) {
 }
 
 func TestReadHelpRequiresSoleArgument(t *testing.T) {
+	if !wantsReadHelp([]string{"--help"}) {
+		t.Fatal("sole --help must request help")
+	}
+	if wantsReadHelp([]string{"-h"}) {
+		t.Fatal("sole -h must not request help; it is a usage error")
+	}
 	if wantsReadHelp([]string{"--", "--help"}) {
 		t.Fatal("an argument after -- is a reference, never a help request")
 	}
@@ -1152,6 +1166,9 @@ func TestReadHelpRequiresSoleArgument(t *testing.T) {
 	}
 	if wantsReadHelp([]string{"--field", "Password", "-h"}) {
 		t.Fatal("mixed arguments must not request help")
+	}
+	if wantsReadHelp([]string{"--help", "Machine/token"}) {
+		t.Fatal("mixed --help must not request help")
 	}
 }
 
