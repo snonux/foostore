@@ -23,7 +23,8 @@ type readFlagSpec struct {
 }
 
 // readFlagSpecs declares the read flags used by command detection and parsing.
-// Sole --help is handled separately; sole -h is a usage error (see wantsReadHelp).
+// Sole --help is handled separately; sole -h is a dedicated usage error
+// (see wantsReadHelp / isSoleRejectedShortHelp).
 var readFlagSpecs = map[string]readFlagSpec{
 	"--backend":         {target: readBackendValue},
 	"--kdbx-path":       {target: readPathValue},
@@ -43,12 +44,19 @@ func isReadOnlyEqualsForm(arg string) bool {
 
 // wantsReadHelp accepts only a sole --help argument. That form prints usage on
 // stdout with exit 0 (gonf's contract probe). A sole -h is deliberately not
-// help: it is far likelier to be an accidental reference (e.g. REF=-h) than a
-// help request, so it falls through to normal parsing as a usage error. Mixed
-// invocations also go through normal parsing so they cannot exit successfully
-// with usage text where a machine caller expects secret bytes.
+// help (see isSoleRejectedShortHelp). Mixed invocations go through normal
+// parsing so they cannot exit successfully with usage text where a machine
+// caller expects secret bytes.
 func wantsReadHelp(argv []string) bool {
 	return len(argv) == 1 && argv[0] == "--help"
+}
+
+// isSoleRejectedShortHelp reports a lone -h. Bare -h is far likelier to be an
+// accidental reference (e.g. REF=-h) than a help request, so it is a dedicated
+// usage error that points at --help rather than a generic unknown-flag message.
+// Mixed -h with other arguments still goes through normal flag parsing.
+func isSoleRejectedShortHelp(argv []string) bool {
+	return len(argv) == 1 && argv[0] == "-h"
 }
 
 // parseReadFlags scans argv for the read command's flags. Value flags use the

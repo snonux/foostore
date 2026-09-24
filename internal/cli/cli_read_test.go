@@ -87,6 +87,56 @@ func createReadCLITestDBWith(t *testing.T, creds *gokeepasslib.DBCredentials) st
 	return tmp.Name()
 }
 
+// createDashNamedEntriesDB writes entries and attachments whose identities are
+// literally "-h" / "--help", so machine read can exercise -- + success path.
+func createDashNamedEntriesDB(t *testing.T) string {
+	t.Helper()
+
+	db := gokeepasslib.NewDatabase()
+	db.Credentials = gokeepasslib.NewPasswordCredentials(readTestPassphrase)
+
+	root := gokeepasslib.NewGroup()
+	root.Name = "Root"
+
+	// Titles directly under the top-level group yield identities "-h" / "--help".
+	for _, e := range []struct {
+		title, password string
+	}{
+		{"-h", "secret-for-dash-h"},
+		{"--help", "secret-for-dash-help"},
+	} {
+		entry := gokeepasslib.NewEntry()
+		setField(&entry, "Title", e.title)
+		setField(&entry, "Password", e.password)
+		root.Entries = append(root.Entries, entry)
+	}
+
+	dash := gokeepasslib.NewGroup()
+	dash.Name = "Dash"
+	parent := gokeepasslib.NewEntry()
+	setField(&parent, "Title", "parent")
+	setField(&parent, "Password", "unused")
+	binH := db.AddBinary([]byte("attach-dash-h\x00\n"))
+	binHelp := db.AddBinary([]byte("attach-dash-help\n"))
+	parent.Binaries = append(parent.Binaries,
+		binH.CreateReference("-h"),
+		binHelp.CreateReference("--help"),
+	)
+	dash.Entries = append(dash.Entries, parent)
+	root.Groups = append(root.Groups, dash)
+	db.Content.Root.Groups = []gokeepasslib.Group{root}
+
+	tmp, err := os.CreateTemp(t.TempDir(), "cli-read-dash-*.kdbx")
+	if err != nil {
+		t.Fatalf("creating temp kdbx: %v", err)
+	}
+	defer func() { _ = tmp.Close() }()
+	if err := gokeepasslib.NewEncoder(tmp).Encode(db); err != nil {
+		t.Fatalf("encoding dash-named test db: %v", err)
+	}
+	return tmp.Name()
+}
+
 // createDuplicateTitleDB writes a database whose two entries share one
 // identity, so an exact read must report it as ambiguous.
 func createDuplicateTitleDB(t *testing.T) string {
@@ -392,24 +442,38 @@ func TestBuildBackendRejectsUnknownName(t *testing.T) {
 }
 
 func TestReadHelp(t *testing.T) {
-	var stdout bytes.Buffer
-	if code := readCommand(context.Background(), []string{"--help"}, &stdout); code != 0 {
+	// Gonf's contract probe is exactly `read --help`: exit 0, usagePrefix and
+	// notFoundLine on stdout, empty stderr.
+	code, stdout, stderr := runReadMachine(t, "", []string{"--help"})
+	if code != 0 {
 		t.Fatalf("--help exit = %d, want 0", code)
 	}
-	if !strings.Contains(stdout.String(), "usage: foostore read") {
-		t.Fatalf("--help output = %q, want the read usage", stdout.String())
+	if stderr != "" {
+		t.Fatalf("--help stderr = %q, want empty", stderr)
+	}
+	const usagePrefix = "usage: foostore read "
+	if !strings.HasPrefix(stdout, usagePrefix) {
+		t.Fatalf("--help stdout = %q, want prefix %q", stdout, usagePrefix)
+	}
+	const notFoundLine = "4 not found (the only suppressible code)"
+	if !strings.Contains(stdout, notFoundLine) {
+		t.Fatalf("--help stdout missing gonf probe marker %q", notFoundLine)
 	}
 }
 
 func TestReadSoleShortHelpIsUsageError(t *testing.T) {
 	// A bare -h is far likelier to be an accidental reference (REF=-h) than a
-	// help request; it must not exit 0 with usage on stdout.
+	// help request; it must not exit 0 with usage on stdout, and must not look
+	// like a generic unknown-flag rejection.
 	code, stdout, stderr := runReadMachine(t, "", []string{"-h"})
 	if code != readExitUsage || stdout != "" || !strings.Contains(stderr, "usage:") {
 		t.Fatalf("read -h = exit %d, stdout %q, stderr %q; want usage error with empty stdout", code, stdout, stderr)
 	}
-	if !strings.Contains(stderr, `unknown flag "-h"`) {
-		t.Fatalf("stderr %q should name the rejected -h flag", stderr)
+	if !strings.Contains(stderr, "-h is not help") || !strings.Contains(stderr, "--help") {
+		t.Fatalf("stderr %q should say -h is not help and point at --help", stderr)
+	}
+	if strings.Contains(stderr, `unknown flag "-h"`) {
+		t.Fatalf("stderr %q must not use the generic unknown-flag path for sole -h", stderr)
 	}
 }
 
@@ -433,11 +497,50 @@ func TestReadHelpMixedWithArgumentsIsUsageError(t *testing.T) {
 func TestReadHelpAfterTerminatorIsLiteralReference(t *testing.T) {
 	dbPath := createReadCLITestDB(t)
 	for _, reference := range []string{"--help", "-h"} {
-		t.Run(reference, func(t *testing.T) {
+		t.Run("absent/"+reference, func(t *testing.T) {
 			argv := []string{"--kdbx-path", dbPath, "--field", "Password", "--", reference}
 			code, stdout, stderr := runReadMachine(t, readTestPassphrase, argv)
 			if code != readExitNotFound || stdout != "" || strings.Contains(stderr, "usage:") {
 				t.Fatalf("read %q = exit %d, stdout %q, stderr %q; want not-found for a literal reference", argv, code, stdout, stderr)
+			}
+		})
+	}
+}
+
+func TestReadDashNamedLiteralAfterTerminatorSucceeds(t *testing.T) {
+	dbPath := createDashNamedEntriesDB(t)
+	cases := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{
+			name: "entry titled -h",
+			argv: []string{"--kdbx-path", dbPath, "--field", "Password", "--", "-h"},
+			want: "secret-for-dash-h",
+		},
+		{
+			name: "entry titled --help",
+			argv: []string{"--kdbx-path", dbPath, "--field", "Password", "--", "--help"},
+			want: "secret-for-dash-help",
+		},
+		{
+			name: "attachment named -h",
+			argv: []string{"--kdbx-path", dbPath, "--", "Dash/parent/-h"},
+			want: "attach-dash-h\x00\n",
+		},
+		{
+			name: "attachment named --help",
+			argv: []string{"--kdbx-path", dbPath, "--", "Dash/parent/--help"},
+			want: "attach-dash-help\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, stdout, stderr := runReadMachine(t, readTestPassphrase, tc.argv)
+			if code != 0 || stdout != tc.want || stderr != "" {
+				t.Fatalf("read %q = exit %d, stdout %q, stderr %q; want 0, %q, empty stderr",
+					tc.argv, code, stdout, stderr, tc.want)
 			}
 		})
 	}
@@ -1157,6 +1260,15 @@ func TestReadHelpRequiresSoleArgument(t *testing.T) {
 	}
 	if wantsReadHelp([]string{"-h"}) {
 		t.Fatal("sole -h must not request help; it is a usage error")
+	}
+	if !isSoleRejectedShortHelp([]string{"-h"}) {
+		t.Fatal("sole -h must take the dedicated rejected-short-help path")
+	}
+	if isSoleRejectedShortHelp([]string{"--help"}) {
+		t.Fatal("sole --help is help, not the rejected-short-help path")
+	}
+	if isSoleRejectedShortHelp([]string{"-h", "Machine/token"}) {
+		t.Fatal("mixed -h must not take the dedicated sole -h path")
 	}
 	if wantsReadHelp([]string{"--", "--help"}) {
 		t.Fatal("an argument after -- is a reference, never a help request")

@@ -11,6 +11,8 @@
 // Exit-code contract (documented in README.md and readUsage):
 //
 //	0 success — stdout contains exactly the requested bytes
+//	  Carve-out: sole --help is gonf's exit-0 usage probe (usage text on
+//	  stdout, empty stderr); it is not a secret read.
 //	1 unexpected runtime failure (including timeouts and signal cancellation)
 //	2 usage error (bad flags, missing reference, invalid selection)
 //	4 not found — the only code a machine consumer may suppress
@@ -75,6 +77,10 @@ func readCommand(ctx context.Context, argv []string, stdout io.Writer) int {
 		// Only sole --help may return usage on stdout with exit 0.
 		_, _ = fmt.Fprintln(stdout, readUsage)
 		return 0
+	}
+	if isSoleRejectedShortHelp(argv) {
+		// Dedicated path: do not report sole -h as a generic unknown flag.
+		return readUsagef("-h is not help; use --help (or -- before a reference literally named -h)")
 	}
 	opts, err := parseReadFlags(argv)
 	if err != nil {
