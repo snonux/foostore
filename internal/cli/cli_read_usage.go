@@ -18,6 +18,7 @@ Exit codes: 0 ok; 1 unexpected failure or timeout; 2 usage;
 
 Credentials resolve non-interactively: FOOSTORE_READ_PASSPHRASE_FD, then
 kdbx_pass_file (regular file, owned by you, no group/world access). The
-descriptor's writer must close its end (the passphrase is read to EOF); one
-trailing line terminator is stripped. There is no $PIN or prompt fallback.
-No shell, no fzf, no export, no git sync.`
+descriptor's writer must close its end (the passphrase is read to EOF);
+the descriptor strips exactly one trailing line terminator. kdbx_pass_file
+strips all trailing CR and LF to match interactive unlock. There is no
+$PIN or prompt fallback. No shell, no fzf, no export, no git sync.`

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -86,9 +87,13 @@ func readMachinePassphrase(cfg *config.Config) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("kdbx_pass_file (no %s set): %w", passphraseFDEnv, err)
 	}
-	pass := trimPassphraseFile(data)
+	return requireNonEmpty(trimPassphraseFile(data), "the passphrase file")
+}
+
+// requireNonEmpty refuses an empty passphrase after the caller's trim rule.
+func requireNonEmpty(pass, source string) (string, error) {
 	if pass == "" {
-		return "", fmt.Errorf("the passphrase file delivered an empty passphrase")
+		return "", errors.New(source + " delivered an empty passphrase")
 	}
 	return pass, nil
 }
@@ -100,10 +105,7 @@ func nonEmptyPassphrase(data []byte, source string) (string, error) {
 	if strings.HasSuffix(pass, "\n") {
 		pass = strings.TrimSuffix(strings.TrimSuffix(pass, "\n"), "\r")
 	}
-	if pass == "" {
-		return "", fmt.Errorf("%s delivered an empty passphrase", source)
-	}
-	return pass, nil
+	return requireNonEmpty(pass, source)
 }
 
 // readPassphraseFromFD reads and closes the descriptor named by fdStr. The

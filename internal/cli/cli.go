@@ -11,6 +11,12 @@
 //   - cli_commands.go — concrete command handlers (cmdAdd, cmdImport, …) and action-function factories
 //   - cli_fish.go     — fish subcommand: generates fish shell integration script (completions + ge wrapper)
 //   - cli_paths.go    — shared path utilities (readPasswordFile, resolveHomeDir, expandHome)
+//   - cli_read.go     — machine-facing `read` command orchestration and exit-code mapping
+//   - cli_read_args.go — MachineReadArgs: detect read invocations and strip the command word
+//   - cli_read_flags.go — read flag table and parseReadFlags
+//   - cli_read_credentials.go — non-interactive passphrase/key-file resolution for machine read
+//   - cli_read_usage.go — readUsage machine-facing help text (gonf contract document)
+//   - cli_read_unix.go / cli_read_other.go — platform credential FD and owner-only checks
 //   - migrate_kdbx.go — thin CLI handler for migrate-kdbx; delegates logic to internal/migrate
 package cli
 
