@@ -278,7 +278,10 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 	b := newReadTestBackend(t, createReadTestDB(t))
 	ctx := context.Background()
 
-	absolute := []string{"/Machine/token", ".", "..", "../Machine/token"}
+	// ../Machine/token still has a "../" Clean result; ../. and ../foo/..
+	// Clean to bare ".." but keep the "../" prefix on the reference — both
+	// arms are usage, not not-found.
+	absolute := []string{"/Machine/token", ".", "..", "../Machine/token", "../.", "../foo/.."}
 	for _, ref := range absolute {
 		_, err := b.ReadRaw(ctx, ref, "Password")
 		if !errors.Is(err, ErrInvalidSelection) {
@@ -314,7 +317,9 @@ func TestNotFoundOrNonCanonicalMessages(t *testing.T) {
 		t.Fatalf("rewrite of ./S should hint stored S: %q", msg)
 	}
 
-	notFoundNoHint := []string{"Machine/..", "./..", "X/.", "S/./"}
+	// ./.. and foo/../.. Clean to ".." without a "../" prefix on the
+	// reference, so they stay not-found (unlike ../. / ../foo/.. above).
+	notFoundNoHint := []string{"Machine/..", "./..", "foo/../..", "X/.", "S/./"}
 	for _, ref := range notFoundNoHint {
 		_, err := b.ReadRaw(ctx, ref, "Password")
 		if !errors.Is(err, ErrNotFound) {
